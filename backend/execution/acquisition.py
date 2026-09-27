@@ -179,7 +179,7 @@ class AcquisitionPlanner:
             if target_pm in ("pip", "pip3") and pip:
                 return AcquisitionPlan(
                     capability=pkg_name, provider=pkg_name, method=AcquisitionMethod.USER_LEVEL,
-                    command=f"{pip} install {pkg_name}",
+                    command=f"{pip} install --user {pkg_name}",
                     privilege_level="PRIVILEGED", feasible=True,
                     reason=f"Installing Python tool '{pkg_name}' via pip."
                 )
@@ -220,7 +220,7 @@ class AcquisitionPlanner:
         if pip:
             return AcquisitionPlan(
                 capability=pkg_name, provider=pkg_name, method=AcquisitionMethod.USER_LEVEL,
-                command=f"{pip} install {pkg_name}", privilege_level="PRIVILEGED", feasible=True,
+                command=f"{pip} install --user {pkg_name}", privilege_level="PRIVILEGED", feasible=True,
                 reason=f"Attempting pip install for '{pkg_name}'."
             )
         if "npm" in avail:
@@ -259,7 +259,7 @@ class AcquisitionPlanner:
                 pkg = self._pip_package_name(spec)
                 return AcquisitionPlan(
                     cap_hint, spec.name, AcquisitionMethod.USER_LEVEL,
-                    command=f"{pip} install {pkg}",
+                    command=f"{pip} install --user {pkg}",
                     privilege_level="PRIVILEGED", feasible=True,
                     reason=f"Python library '{spec.module}' is pip-installable at user level.")
             return AcquisitionPlan(cap_hint, spec.name, AcquisitionMethod.UNAVAILABLE,

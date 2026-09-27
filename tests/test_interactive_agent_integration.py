@@ -241,7 +241,11 @@ class TestInteractiveAgentIntegration(unittest.TestCase):
     def test_one_shot_commands_unaffected(self):
         """Verify standard one-shot commands still execute normally through ExecutionService."""
         async def scenario():
-            res = await tool_manager.execute_raw_command(f'{PY} -c "print(12345 * 2)"')
+            # PY must be quoted: sys.executable routinely contains spaces (a Windows
+            # workspace under "VS code", any path with a space), and an unquoted
+            # interpreter path is split by the shell into "C:\...\VS" + "code\..." —
+            # which surfaces as COMMAND_NOT_FOUND -> MISSING_TOOL, not as a test bug.
+            res = await tool_manager.execute_raw_command(f'"{PY}" -c "print(12345 * 2)"')
             self.assertEqual(res.status, "SUCCESS")
             self.assertIn("24690", res.stdout.strip())
             self.assertEqual(res.capability, "custom_command")

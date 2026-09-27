@@ -559,7 +559,13 @@ class TestMissionBudget(Phase5Base):
         self.assertFalse(b.exhausted()[0])
         self.assertAlmostEqual(b.pressure(), 2 / 3, places=3)
         b.record_agent_call()
-        self.assertTrue(b.exhausted()[0])
+        # The cap is reached and pressure reflects it — but a full budget deliberately
+        # never HALTS anything. Budget halting was removed on purpose (no-auto-stop: a
+        # run ends on flag capture or the operator kill switch, never because a counter
+        # filled up), so exhausted() must stay False even past the cap. See
+        # MissionBudget.exhausted()'s contract in backend/swarm/progress.py.
+        self.assertAlmostEqual(b.pressure(), 1.0, places=3)
+        self.assertFalse(b.exhausted()[0])
 
     def test_budget_roundtrips(self):
         b = MissionBudget(max_tool_executions=10)
@@ -580,12 +586,21 @@ class TestStopConditions(Phase5Base):
         self.assertEqual(cond, StopCondition.FLAG_VERIFIED)
         self.assertEqual(cond.final_status, "COMPLETED")
 
-    def test_budget_exhausted_stop(self):
+    def test_budget_exhaustion_is_not_a_stop_condition(self):
+        """A full mission budget must NOT stop a run.
+
+        Budget halting was deliberately removed (``MissionBudget.exhausted()`` is a
+        hardcoded ``(False, "")``), matching FORGE's no-auto-stop lifecycle: a run ends
+        on flag capture, the operator kill switch, or the time budget — not because a
+        counter filled up. evaluate_stop() therefore never returns
+        MISSION_BUDGET_EXHAUSTED, and this pins that so the halting behaviour cannot
+        creep back in unnoticed.
+        """
         b = MissionBudget(max_agent_calls=1)
         b.record_agent_call()
         cond, _ = evaluate_stop(self._ms(), budget=b)
-        self.assertEqual(cond, StopCondition.MISSION_BUDGET_EXHAUSTED)
-        self.assertEqual(cond.final_status, "FAILED")
+        self.assertEqual(cond, StopCondition.NONE)
+        self.assertNotEqual(cond.final_status, "FAILED")
 
     def test_no_progress_stop(self):
         ledger = ProgressLedger(stagnation_limit=2)

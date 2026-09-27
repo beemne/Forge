@@ -88,7 +88,18 @@ class TestDataWiringEndpoints(unittest.TestCase):
         mock_tool_res.stderr = ""
         mock_tool_res.execution_failure = False
 
+        turns = []
+
         async def fake_route_request(*args, **kwargs):
+            # _agent_worker has no turn cap by design: it runs until the board stops
+            # (flag captured or is_stopped), so max_iterations does not bound it. This
+            # fake returns the same command every time, which means that after the first
+            # execution every later turn is a duplicate and the worker spins on the
+            # dedup path forever. Stop the board after the first turn so the loop ends
+            # through its real termination signal.
+            turns.append(1)
+            if len(turns) > 1:
+                board.is_stopped = True
             resp = AsyncMock()
             resp.is_refusal = False
             resp.content = "I will scan the target:\n```bash\nffuf -u http://target.local/FUZZ -w wordlist.txt\n```"
@@ -100,7 +111,6 @@ class TestDataWiringEndpoints(unittest.TestCase):
 
         with patch("backend.agents.swarm_orchestrator.model_router.route_request", side_effect=fake_route_request), \
              patch("backend.agents.swarm_orchestrator.tool_manager.execute_tool", side_effect=fake_execute_tool):
-            board.max_iterations = 1
             asyncio.run(orchestrator._agent_worker("agent_1", board, ".", "web_analysis"))
 
         # 3. Query GET /challenges/{id}/candidates

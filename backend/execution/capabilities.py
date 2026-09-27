@@ -203,6 +203,15 @@ class CapabilityService:
     def _tool_present(self, spec: ProviderSpec) -> bool:
         if shutil.which(spec.binary):
             return True
+        # A `python`/`python3` provider is satisfied by the interpreter FORGE itself is
+        # running on, even when the venv's Scripts/bin directory is not on PATH — which
+        # is the ordinary deployment. This is not a claim that cannot be honoured:
+        # LocalBackend._normalise_command() rewrites a leading `python3`/`python` to
+        # exactly this interpreter, so such a command really does run. Reporting
+        # python_exec as unavailable while FORGE is itself executing inside Python
+        # would be false, and would send a solvable task down the acquisition path.
+        if spec.binary in ("python", "python3") and sys.executable:
+            return True
         caps = self._caps()
         return bool(caps and caps.has_tool(spec.binary))
 

@@ -7,6 +7,7 @@ Validates:
 4. Response body includes challenge_id and address_history.
 """
 
+import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -36,7 +37,6 @@ from backend.database.models import (
     ChatMessageModel,
 )
 from backend.providers.base import ProviderResponse
-import os
 
 _WIPE_ORDER = [
     AgentStateModel, CheckpointModel, ToolExecutionModel,

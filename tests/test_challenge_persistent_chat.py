@@ -1,3 +1,4 @@
+import os
 import unittest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
@@ -26,7 +27,6 @@ from backend.database.models import (
     ReportModel,
 )
 from backend.providers.base import ProviderResponse
-import os
 
 class TestChallengePersistentChat(unittest.TestCase):
     """Test suite for persistent challenge chat and live state awareness."""

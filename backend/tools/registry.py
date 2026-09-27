@@ -161,6 +161,27 @@ class ToolRegistry:
             args_template="-r {target}"
         ))
 
+        # Binary / File Analysis (Strings) — registered BEFORE binwalk deliberately:
+        # execute_capability() selects the FIRST installed candidate for a capability,
+        # so registration order *is* the priority. `strings -n 8` is the cheap,
+        # read-only first pass over an unknown artifact; `binwalk -e` extracts embedded
+        # files and writes them to disk, which is the wrong default for a bare
+        # file_analysis. The rest of the codebase orders them the same way
+        # (agents/artifact_classifier.py, swarm/candidates.py). Reordering these two
+        # silently changes which tool every file_analysis run reaches for.
+        self.register_tool(ToolMetadata(
+            tool_name="strings",
+            capabilities=["file_analysis", "reverse_engineering"],
+            binary="strings",
+            version_command="strings --version",
+            installation_recipe="sudo apt-get install -y binutils",
+            os_compatibility=["linux", "windows", "darwin"],
+            privilege_requirement="SAFE",
+            risk_level="SAFE",
+            timeout_seconds=30,
+            args_template="-n 8 {target}"
+        ))
+
         # 11. binwalk
         self.register_tool(ToolMetadata(
             tool_name="binwalk",
@@ -369,20 +390,6 @@ class ToolRegistry:
             risk_level="SAFE",
             timeout_seconds=60,
             args_template="{target}"
-        ))
-
-        # Binary / File Analysis (Strings)
-        self.register_tool(ToolMetadata(
-            tool_name="strings",
-            capabilities=["file_analysis", "reverse_engineering"],
-            binary="strings",
-            version_command="strings --version",
-            installation_recipe="sudo apt-get install -y binutils",
-            os_compatibility=["linux", "windows", "darwin"],
-            privilege_requirement="SAFE",
-            risk_level="SAFE",
-            timeout_seconds=30,
-            args_template="-n 8 {target}"
         ))
 
         # Vision / Multimodal Image Reading

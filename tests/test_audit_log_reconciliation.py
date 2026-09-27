@@ -148,12 +148,24 @@ class TestAuditLogReconciliation(unittest.IsolatedAsyncioTestCase):
 
         orchestrator = SwarmOrchestrator()
         board = SwarmBlackboard("ch_audit_ok", f"run_{uuid.uuid4().hex[:8]}", "http://127.0.0.1:8000")
-        board.max_iterations = 1
         orchestrator.active_swarms[board.challenge_id] = board
+
+        llm_calls = 0
+
+        async def _llm_side_effect(*args, **kwargs):
+            nonlocal llm_calls
+            llm_calls += 1
+            # _agent_worker has no turn cap by design -- the iteration restrictions were
+            # removed, so max_iterations does not bound it and a fixed command would spin
+            # on the dedup path until the wait_for below times out. Stop the board after
+            # the first turn, which is the loop's real termination signal.
+            if llm_calls > 1:
+                board.is_stopped = True
+            return _make_llm_response(cmd)
 
         with patch("backend.agents.swarm_orchestrator.model_router.route_request", new_callable=AsyncMock) as mock_route, \
              patch("backend.agents.swarm_orchestrator.tool_manager.execute_tool", new_callable=AsyncMock) as mock_exec:
-            mock_route.return_value = _make_llm_response(cmd)
+            mock_route.side_effect = _llm_side_effect
             mock_exec.return_value = _make_exec_result()
 
             worker = asyncio.create_task(orchestrator._agent_worker(agent_id, board, ".", "code_execution"))
@@ -184,21 +196,38 @@ class TestAuditLogReconciliation(unittest.IsolatedAsyncioTestCase):
 
     async def test_audit_row_false_and_no_execution_on_operator_deny(self):
         agent_id = f"worker_audit_deny_{uuid.uuid4().hex[:8]}"
-        cmd = "gobuster dir -u http://127.0.0.1:8000 -w /tmp/wl.txt"
-        self.assertEqual(classify_command_privilege(cmd, "gobuster"), "PRIVILEGED")
+        cmd = "hydra -l admin -P /tmp/wl.txt http://127.0.0.1:8000"
+        self.assertEqual(classify_command_privilege(cmd, "hydra"), "PRIVILEGED")
 
         orchestrator = SwarmOrchestrator()
         board = SwarmBlackboard("ch_audit_deny", f"run_{uuid.uuid4().hex[:8]}", "http://127.0.0.1:8000")
-        board.max_iterations = 1
         orchestrator.active_swarms[board.challenge_id] = board
+
+        llm_calls = 0
+
+        async def _llm_side_effect(*args, **kwargs):
+            nonlocal llm_calls
+            llm_calls += 1
+            # _agent_worker has no turn cap by design -- the iteration restrictions were
+            # removed, so max_iterations does not bound it and a fixed command would spin
+            # on the dedup path until the wait_for below times out. Stop the board after
+            # the first turn, which is the loop's real termination signal.
+            if llm_calls > 1:
+                board.is_stopped = True
+            return _make_llm_response(cmd)
 
         with patch("backend.agents.swarm_orchestrator.model_router.route_request", new_callable=AsyncMock) as mock_route, \
              patch("backend.agents.swarm_orchestrator.tool_manager.execute_tool", new_callable=AsyncMock) as mock_exec:
-            mock_route.return_value = _make_llm_response(cmd)
+            mock_route.side_effect = _llm_side_effect
             mock_exec.return_value = _make_exec_result()
 
             worker = asyncio.create_task(orchestrator._agent_worker(agent_id, board, ".", "code_execution"))
             resp = await self._resolve_when_pending(orchestrator, board, "deny")
+            # The denied command never executes, so the worker does not consume another
+            # LLM turn and the side_effect above never fires. Stop the board directly --
+            # _agent_worker has no turn cap, and otherwise it re-requests approval for the
+            # same command and blocks in require_approval (which has no timeout).
+            board.is_stopped = True
             await asyncio.wait_for(worker, timeout=25)
 
         self.assertIsNotNone(resp, "worker never registered a pending approval")
@@ -210,7 +239,7 @@ class TestAuditLogReconciliation(unittest.IsolatedAsyncioTestCase):
         try:
             rows = db.query(AuditLogModel).filter(
                 AuditLogModel.agent == agent_id,
-                AuditLogModel.action == "execute_tool:gobuster",
+                AuditLogModel.action == "execute_tool:hydra",
             ).all()
             self.assertTrue(rows, "expected an AuditLogModel row for the denied command")
             self.assertTrue(

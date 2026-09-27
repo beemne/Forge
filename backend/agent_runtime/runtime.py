@@ -425,7 +425,7 @@ class AgentRuntime:
         self,
         session: AgentSession,
         *,
-        max_turns: int = 40,
+        max_turns: Optional[int] = None,
         max_seconds: Optional[float] = None,
         cwd: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
@@ -450,7 +450,7 @@ class AgentRuntime:
         self,
         session: AgentSession,
         *,
-        max_turns: int = 40,
+        max_turns: Optional[int] = None,
         max_seconds: Optional[float] = None,
         cwd: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
@@ -487,7 +487,21 @@ class AgentRuntime:
                 self.sessions.complete(session, outcome="incomplete")
                 self._learn(session, "failure", all_retrieved_ids)
                 return self._result(session, "TIMEOUT", turns, "Mission time budget exhausted.")
-            # (Turn limit restrictions removed - runs are not halted on max turns)
+            # ── Termination: explicit turn bound (only when the caller supplies one) ──
+            # max_turns=None keeps FORGE's no-auto-stop lifecycle: runs end on flag
+            # capture, the operator kill switch, or the time budget -- never merely
+            # because a counter filled up. A caller that passes a number opts into a
+            # hard bound, which matters because neither COMPLETE path below can end
+            # the loop on its own: a provider that only ever repeats a flag assertion
+            # or BUDGET_EXHAUSTED would otherwise spin here indefinitely.
+            # Status is MAX_TURNS (not INCOMPLETE): it is the value in this module's
+            # status contract, and swarm/reasoning.py + swarm/supervisor.py classify
+            # failures by matching that literal string.
+            if max_turns is not None and turns >= max_turns:
+                self.sessions.complete(session, outcome="incomplete")
+                self._learn(session, "failure", all_retrieved_ids)
+                return self._result(session, "MAX_TURNS", turns,
+                                    f"Turn limit reached ({max_turns}).")
 
             turns += 1
 

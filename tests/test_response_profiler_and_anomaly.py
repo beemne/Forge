@@ -4,8 +4,6 @@ Priority Preemption, and Post-Exploitation Probing.
 
 import os
 
-import pytest
-
 # Pinned above the first backend import on purpose. Importing backend used to repoint
 # DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
 # the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives

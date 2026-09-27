@@ -35,17 +35,19 @@ def classify_command_privilege(cmd: str, bin_name: str) -> str:
     """Classify the privilege level required for a command.
 
     Priority order:
-    1. If bin_name is in tool_registry.tools, return its privilege_requirement.
-    2. Else, check cmd against dangerous regex patterns -> 'DANGEROUS'.  Runs BEFORE
-       rule 3 so no allowlist can hide a destructive command.
+    1. Check cmd against dangerous regex patterns -> 'DANGEROUS'.  This runs FIRST,
+       before any allowlist or registry lookup, so nothing can hide a destructive
+       command behind a trusted name: `python3 -c "import os; os.system('rm -rf /')"`
+       is DANGEROUS even though `python3` is a registered SAFE tool.
+    2. If bin_name is in tool_registry.tools, return its privilege_requirement.
     3. Else, if bin_name is a common script interpreter -> 'SAFE' (automation).
     4. Otherwise, return 'PRIVILEGED' (fail-closed).
     """
-    if bin_name and bin_name in tool_registry.tools:
-        return tool_registry.tools[bin_name].privilege_requirement
-
     if any(pattern.search(cmd) for pattern in DANGEROUS_PATTERNS):
         return "DANGEROUS"
+
+    if bin_name and bin_name in tool_registry.tools:
+        return tool_registry.tools[bin_name].privilege_requirement
 
     if bin_name and bin_name in AUTOMATION_SAFE_BINARIES:
         return "SAFE"

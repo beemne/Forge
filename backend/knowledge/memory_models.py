@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -96,6 +97,17 @@ class Generalizer:
             # A bare host:port / path / IP / URL target token.
             if tok.startswith("http"):
                 out = cls._sub_literal(out, tok, "{TARGET_URL}")
+                # The bare host also appears WITHOUT its scheme — as a path segment,
+                # a Host: header, a "Resolving <host>..." log line. Substituting only
+                # the full URL left `{TARGET_URL}/a-upload.ctf/upload.php` and any
+                # scheme-less mention intact, so the concrete target still leaked into
+                # stored experience (rule §4). Scrubbed AFTER the URL so the full-URL
+                # literal is still matchable. {HOST} is the same sentinel _IPV4_RE
+                # already uses, and _sub_literal ignores needles under 3 chars, so a
+                # degenerate host cannot match everything.
+                _host = urlparse(tok).hostname or ""
+                if _host:
+                    out = cls._sub_literal(out, _host, "{HOST}")
             elif "/" in tok or "\\" in tok:
                 out = cls._sub_literal(out, tok, "{ARTIFACT_PATH}")
             else:

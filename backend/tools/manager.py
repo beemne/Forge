@@ -743,6 +743,15 @@ class ToolManager:
             data_arg = parts[2] if len(parts) > 2 else ""
             return await self.execute_capability(capability="interactive_send_and_read", target=sess_key, extra_args=data_arg, cwd=cwd)
 
+        # interactive_close must be intercepted here too: it is a FORGE-internal
+        # primitive with no filesystem binary, so without this branch the raw command
+        # fell through to ExecutionService and died with COMMAND_NOT_FOUND/MISSING_TOOL,
+        # leaving the session (and its child process) alive. Every other interactive
+        # primitive is intercepted above; this one was simply missing.
+        if raw_cmd.startswith("interactive_close ") or raw_cmd.startswith("interactive_close\t") or raw_cmd == "interactive_close":
+            sess_key = raw_cmd.split(None, 1)[1].strip() if " " in raw_cmd or "\t" in raw_cmd else ""
+            return await self.execute_capability(capability="interactive_close", target=sess_key, cwd=cwd)
+
         # Tool installation / acquisition intercept
         if raw_cmd.startswith("install_tool ") or raw_cmd.startswith("install_tool\t") or raw_cmd == "install_tool":
             tool_arg = raw_cmd.split(None, 1)[1].strip() if " " in raw_cmd or "\t" in raw_cmd else ""

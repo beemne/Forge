@@ -177,6 +177,20 @@ class ObservationEngine:
                 if clean_m.startswith("/") or clean_m.startswith("uploads/") or "/" in clean_m:
                     obs.new_endpoints.append(clean_m)
 
+        # ── Source code file references -> SOURCE_CODE_REFERENCE ──
+        # Runs BEFORE the generic extractor below, which stamps every `word.ext` token
+        # it recognises as a PATH with REMOTE_FILE. `file_provenance` is
+        # first-writer-wins, so in the previous order the generic pass always won and
+        # SOURCE_CODE_REFERENCE was unreachable for any file carrying a common
+        # extension — e.g. the `config/db_secret.php` named in a PHP require_once
+        # warning, which is a *reference to* a source file, not an uploaded artifact.
+        # The explicit upload phrasing above still outranks this: "File uploaded to X"
+        # is a stronger claim about X than a mere mention of it.
+        for m in _SOURCE_FILE_RE.findall(combined):
+            obs.new_files.append(m)
+            if m not in obs.file_provenance:
+                obs.file_provenance[m] = "SOURCE_CODE_REFERENCE"
+
         # ── Generic Structural Artifact Extraction (Pattern-based, no keyword reliance) ──
         target_base = getattr(state, "target", "") or getattr(state, "target_url", "") or ""
         generic_artifacts = extract_generic_artifacts(combined, base_url=target_base)
@@ -204,12 +218,6 @@ class ObservationEngine:
             )
             if anom_result.is_anomalous:
                 obs.anomalous_response = anom_result.to_dict()
-
-        # ── Source code file references -> SOURCE_CODE_REFERENCE ──
-        for m in _SOURCE_FILE_RE.findall(combined):
-            obs.new_files.append(m)
-            if m not in obs.file_provenance:
-                obs.file_provenance[m] = "SOURCE_CODE_REFERENCE"
 
         # ── Interactive Sessions ──
         for sess in _SESSION_RE.findall(combined):

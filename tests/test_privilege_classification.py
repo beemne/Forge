@@ -33,13 +33,15 @@ class TestPrivilegeClassification(unittest.TestCase):
         self.assertEqual(classify_command_privilege("ffuf -u http://target/FUZZ -w list.txt", "ffuf"), "SAFE")
         self.assertEqual(classify_command_privilege("strings -n 8 binary.elf", "strings"), "SAFE")
         self.assertEqual(classify_command_privilege("binwalk -e firmware.bin", "binwalk"), "SAFE")
+        # gobuster is registry-registered SAFE/LOW risk -- the same class of web content
+        # discovery tool as ffuf above. It must NOT appear in the approval-required set.
+        self.assertEqual(classify_command_privilege("gobuster dir -u http://target -w list.txt", "gobuster"), "SAFE")
 
     def test_unregistered_binary_classifies_as_privileged(self):
         # Unregistered binaries that are NOT script interpreters fail closed to
         # PRIVILEGED (never SAFE) — the automation allowlist must not widen this set.
         self.assertEqual(classify_command_privilege("sqlmap -u http://x", "sqlmap"), "PRIVILEGED")
         self.assertEqual(classify_command_privilege("nc -lvnp 4444", "nc"), "PRIVILEGED")
-        self.assertEqual(classify_command_privilege("gobuster dir -u http://x -w /wordlist", "gobuster"), "PRIVILEGED")
         self.assertEqual(classify_command_privilege("hydra -l admin -P rock.txt t.local", "hydra"), "PRIVILEGED")
         self.assertEqual(classify_command_privilege("socat TCP-LISTEN:4444 -", "socat"), "PRIVILEGED")
 

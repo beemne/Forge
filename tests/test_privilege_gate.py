@@ -73,6 +73,18 @@ def _manual_mode():
 def _auto_mode():
     return patch.object(settings, "FORGE_APPROVAL_MODE", "auto")
 
+def _broadcast_events(broadcast) -> list:
+    """The events actually pushed to the operator console, in order.
+
+    The gate emits two distinct kinds: APPROVAL_REQUIRED, which REGISTERS a pending
+    request the operator has to answer, and the trailing APPROVAL_RESOLVED
+    announcement (see ``_broadcast_resolved``) that merely logs the outcome — the
+    auto-approve path fires the latter without ever firing the former. Assertions
+    about "was the operator asked?" must therefore read the event stream rather than
+    treating any broadcast at all as a question.
+    """
+    return [call.args[0]["event"] for call in broadcast.await_args_list]
+
 async def _resolve_pending_via_api(decision: str, sudo_password=None,
                                    timeout_s: float = 20.0) -> bool:
     """Poll the shared registry until a gate registers a request, then deliver a REAL
@@ -209,6 +221,8 @@ class TestRequireApprovalFailClosed(_GateTestBase):
         seen = {}
 
         async def _capture(payload):
+            if payload["event"] != "APPROVAL_REQUIRED":
+                return  # the trailing APPROVAL_RESOLVED announcement is not the request
             seen["request_id"] = payload["request_id"]
             seen["event"] = payload["event"]
             # Respond as the operator would, through the same dict the gate polls.
@@ -332,7 +346,13 @@ class TestRequireApprovalAutoMode(_GateTestBase):
 
     async def test_auto_mode_privileged_without_sudo_runs_unattended(self):
         """Auto mode: a PRIVILEGED command with no sudo is approved immediately — no
-        pending entry, no broadcast, no wait at all."""
+        pending entry, no APPROVAL_REQUIRED, no wait at all.
+
+        The gate still emits one APPROVAL_RESOLVED announcement so the operator console
+        can account afterwards for a privileged command that ran with nobody watching —
+        that is a logged entry, never a question. The invariant pinned here is that the
+        operator is never ASKED: nothing is registered and no APPROVAL_REQUIRED goes out.
+        """
         broadcast = AsyncMock()
         with _auto_mode():
             approved, decision, sudo_pw = await require_approval(
@@ -347,8 +367,12 @@ class TestRequireApprovalAutoMode(_GateTestBase):
         self.assertTrue(approved)
         self.assertEqual(decision, "auto-approved")
         self.assertIsNone(sudo_pw)
-        broadcast.assert_not_awaited()
         self.assertEqual(SHARED_PENDING_APPROVALS, {}, "auto-approve must register nothing")
+        self.assertEqual(
+            _broadcast_events(broadcast), ["APPROVAL_RESOLVED"],
+            "auto mode must announce its decision, never ASK for one (no APPROVAL_REQUIRED)",
+        )
+        self.assertTrue(broadcast.await_args_list[0].args[0]["approved"])
 
     async def test_auto_mode_dangerous_without_sudo_also_runs_unattended(self):
         """DELIBERATE, operator-requested tradeoff: in auto mode a DANGEROUS command
@@ -366,7 +390,10 @@ class TestRequireApprovalAutoMode(_GateTestBase):
 
         self.assertTrue(approved)
         self.assertEqual(decision, "auto-approved")
-        broadcast.assert_not_awaited()
+        self.assertEqual(
+            _broadcast_events(broadcast), ["APPROVAL_RESOLVED"],
+            "even a DANGEROUS command auto-approved unattended must never be put to the operator",
+        )
 
     async def test_auto_mode_sudo_command_still_waits_for_the_credential(self):
         """A sudo command in auto mode still halts: the operator is asked for the
@@ -374,6 +401,8 @@ class TestRequireApprovalAutoMode(_GateTestBase):
         seen = {}
 
         async def _capture(payload):
+            if payload["event"] != "APPROVAL_REQUIRED":
+                return  # the trailing APPROVAL_RESOLVED announcement is not the request
             seen.update(payload)
             entry = SHARED_PENDING_APPROVALS[payload["request_id"]]
             seen["auto_mode_sudo_only"] = entry.get("auto_mode_sudo_only")

@@ -160,6 +160,14 @@ class TestSwarmBugFixes(unittest.TestCase):
         def fake_route_request(*args, **kwargs):
             nonlocal iter_n
             iter_n += 1
+            # _agent_worker has no turn cap by design -- the iteration restrictions were
+            # removed, so it runs until the board stops or a flag is captured and
+            # max_iterations does not bound it. Once the command shape is blocked every
+            # later turn is pre-check skipped, so without this the worker spins here
+            # forever. Stop the board after the 4th turn (the loop's real termination
+            # signal), leaving exactly 3 executions plus the 4th pre-check skip under test.
+            if iter_n > 4:
+                board.is_stopped = True
             cmd_variant = f"python solve_exploit.py --target http://target.local/admin?v={iter_n}"
             resp = AsyncMock()
             resp.is_refusal = False
@@ -177,7 +185,6 @@ class TestSwarmBugFixes(unittest.TestCase):
              patch("backend.agents.swarm_orchestrator.privilege_manager.evaluate_privilege_ex", return_value=(True, None)), \
              patch("backend.agents.swarm_orchestrator.tool_manager.execute_tool", side_effect=fake_execute_tool):
 
-            board.max_iterations = 4
             asyncio.run(orchestrator._agent_worker("agent_1", board, ".", "code_execution"))
 
             self.assertEqual(exec_count, 3, "Tool should have executed exactly 3 times across 4 iterations (4th iteration skipped by pre-check)")
