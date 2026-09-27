@@ -2,6 +2,15 @@ import unittest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
+
 from backend.main import app
 from backend.database.session import SessionLocal, init_db
 from backend.database.models import (
@@ -18,15 +27,6 @@ from backend.database.models import (
 )
 from backend.providers.base import ProviderResponse
 import os
-
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-
 
 class TestChallengePersistentChat(unittest.TestCase):
     """Test suite for persistent challenge chat and live state awareness."""

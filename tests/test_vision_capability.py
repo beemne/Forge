@@ -7,20 +7,21 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
+
 from backend.providers.real_providers import GeminiProvider, _detect_mime_type
 from backend.providers.router import ModelRouter, model_router
 from backend.tools.manager import tool_manager
 from backend.tools.registry import tool_registry
 from backend.agents.swarm_orchestrator import SwarmOrchestrator
 from backend.agents.swarm_state import SwarmBlackboard
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-
 
 class TestVisionCapability(unittest.IsolatedAsyncioTestCase):
 
@@ -217,7 +218,6 @@ class TestVisionCapability(unittest.IsolatedAsyncioTestCase):
             self.assertIn("picoCTF{vision_read_worked}", res.stdout)
             self.assertEqual(res.tool_name, "vision_read")
             self.assertEqual(res.capability, "vision_read")
-
 
 if __name__ == "__main__":
     unittest.main()

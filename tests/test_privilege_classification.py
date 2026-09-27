@@ -2,28 +2,22 @@
 
 import os
 import unittest
+
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
+
 from backend.privilege.classify import (
     AUTOMATION_SAFE_BINARIES,
     classify_command_privilege,
 )
 from backend.privilege.manager import PrivilegeManager
 from backend.database.session import SessionLocal, init_db
-
-# backend.config runs load_dotenv(override=True) at import time, which clobbers any
-# DATABASE_URL set BEFORE the backend imports above — so the usual "set it at the top
-# of the file" ordering silently leaves this suite pointed at production forge.db.
-# Assigning it here, after those imports have run and before get_engine() is first
-# called, actually sticks: get_engine() re-reads the variable on every call. This keeps
-# the suite on the isolated test_forge.db required by project rule #5.
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-
 
 class TestPrivilegeClassification(unittest.TestCase):
     def setUp(self):
@@ -123,7 +117,6 @@ class TestPrivilegeClassification(unittest.TestCase):
             self.assertFalse(manager.evaluate_privilege(agent="agent_1", tool_name="rm", privilege_level="DANGEROUS", db=db))
         finally:
             db.close()
-
 
 if __name__ == "__main__":
     unittest.main()

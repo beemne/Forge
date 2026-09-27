@@ -18,14 +18,14 @@ import os
 import asyncio
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import (
@@ -39,14 +39,12 @@ from backend.swarm import (
 )
 from backend.swarm import events as swarm_events
 
-
 # --------------------------------------------------------------------------- #
 # Helpers / doubles
 # --------------------------------------------------------------------------- #
 
 def _run(coro):
     return asyncio.run(coro)
-
 
 class ProgrammableAgent:
     """A SpecialistAgent double that records what ran and returns a scripted result."""
@@ -61,7 +59,6 @@ class ProgrammableAgent:
         return AgentResult(task_id=task.id, role=rv, status=self._status,
                            session_id="s", verified_flag=None, flag_candidates=[],
                            evidence=[], reason="ok")
-
 
 # --------------------------------------------------------------------------- #
 # Helpers / doubles
@@ -86,7 +83,6 @@ class _CaptureEvents:
     def names(self):
         return [e for e, _ in self.events]
 
-
 class Phase7Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -101,7 +97,6 @@ class Phase7Base(unittest.TestCase):
             db.commit()
         finally:
             db.close()
-
 
 # =========================================================================== #
 # 1) reconcile_target — the pure decision (STEP 2 / STEP 5)                    #
@@ -154,7 +149,6 @@ class TestReconcilePure(Phase7Base):
         self.assertEqual(d["changed"], True)
         self.assertIn("stale_hosts", d)
         self.assertIsInstance(TargetReconciliation(changed=False, authoritative="x").to_dict(), dict)
-
 
 # =========================================================================== #
 # 2) SharedMissionState.adopt_authoritative_target (STEP 5)                    #
@@ -211,7 +205,6 @@ class TestMissionAdoptTarget(Phase7Base):
         r = reconcile_target("http://10.10.14.2:8080", ms.target)
         ms.adopt_authoritative_target(r.authoritative, r.stale_hosts)
         self.assertIn("picoCTF{maybe_this_one}", ms.flag_candidates)
-
 
 # =========================================================================== #
 # 3) SwarmCoordinator resume reconciliation (STEP 2 / STEP 5 / STEP 10)        #
@@ -276,7 +269,6 @@ class TestCoordinatorResumeReconciliation(Phase7Base):
         self.assertTrue(snap["target_reconciliation"].get("changed"))
         self.assertEqual(snap["target"], "http://10.10.14.9:8080")
 
-
 # =========================================================================== #
 # 4) Default engine — SwarmBlackboard.reconcile_target (STEP 2 / STEP 5)       #
 # =========================================================================== #
@@ -311,7 +303,6 @@ class TestBlackboardReconcile(Phase7Base):
         plan = b._build_mission_plan()
         self.assertEqual(plan["blackboard_state"].get("target_scope"), "http://10.10.14.1:8080")
 
-
 # =========================================================================== #
 # 5) Provider / quota observability (STEP 4 / STEP 13)                         #
 # =========================================================================== #
@@ -342,13 +333,11 @@ class TestProviderObservability(Phase7Base):
         self.assertTrue(qs)
         self.assertIn("models", qs)
 
-
 def _host(spec: str) -> str:
     hs = sorted(hosts_of(spec))
     # pick the bare host token (shortest without scheme/port/path)
     bare = [h for h in hs if "/" not in h and ":" not in h]
     return bare[0] if bare else (hs[0] if hs else spec)
-
 
 # =========================================================================== #
 # 6) Re-plan-on-target-change recovery (STEP 2 / STEP 10) — full run() path    #
@@ -416,10 +405,8 @@ class TestReplanOnTargetChange(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(coord._last_reconciliation.get("changed"))
         self.assertEqual(executed, [])  # nothing re-dispatched; completed plan respected
 
-
 def _tail_guard():  # pragma: no cover
     return True
-
 
 if __name__ == "__main__":
     unittest.main()

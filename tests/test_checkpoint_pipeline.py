@@ -5,14 +5,14 @@ import asyncio
 import os
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.agents.checkpoint_pipeline import (
     AgentCheckpointRecord,
@@ -21,10 +21,8 @@ from backend.agents.checkpoint_pipeline import (
     parse_suggestions,
 )
 
-
 def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
-
 
 class TestReportAssembly(unittest.TestCase):
     def _report(self, records, summarizer=None):
@@ -106,7 +104,6 @@ class TestReportAssembly(unittest.TestCase):
         block = build_response_instructions([])
         self.assertIn("--- suggestion: agent_1 ---", block)
 
-
 class TestSuggestionParser(unittest.TestCase):
     def test_happy_path_two_agents(self):
         text = (
@@ -157,7 +154,6 @@ class TestSuggestionParser(unittest.TestCase):
         self.assertTrue(p.parsed)
         self.assertIn("first directive", p.directives["agent_1"])
         self.assertIn("second directive", p.directives["agent_1"])
-
 
 class TestSuggestionEvaluationGate(unittest.TestCase):
     """Tests for evaluate_suggestion and evaluate_suggestions in checkpoint_pipeline."""
@@ -257,7 +253,6 @@ class TestSuggestionEvaluationGate(unittest.TestCase):
         self.assertEqual(evals["agent_1"].decision, SuggestionDecision.REJECT)
         self.assertEqual(evals["agent_2"].decision, SuggestionDecision.ACCEPT)
         self.assertEqual(evals["agent_3"].decision, SuggestionDecision.MODIFY)
-
 
 class TestCheckpointPipelineLiveFlow(unittest.TestCase):
     """Integration-level tests covering the live checkpoint flow sequence:
@@ -371,7 +366,5 @@ class TestCheckpointPipelineLiveFlow(unittest.TestCase):
 
         self.assertEqual(agent_directives, {})
 
-
 if __name__ == "__main__":
     unittest.main()
-

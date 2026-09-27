@@ -9,17 +9,16 @@ instead of re-running the same broken invocation against a rate-limited provider
 import os
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.tools.manager import classify_tool_execution, LOCAL_EXEC_CATEGORIES
-
 
 class TestLocalExecutionFailures(unittest.TestCase):
     def test_errno2_no_such_file_is_file_not_found(self):
@@ -46,7 +45,6 @@ class TestLocalExecutionFailures(unittest.TestCase):
         self.assertTrue(r["execution_failure"])
         self.assertEqual(r["failure_category"], "MISSING_DEP")
 
-
 class TestNetworkFailuresStillWork(unittest.TestCase):
     def test_dns_error_preserved(self):
         r = classify_tool_execution("curl", 6, "", "curl: (6) Could not resolve host: bad.ctf")
@@ -57,7 +55,6 @@ class TestNetworkFailuresStillWork(unittest.TestCase):
         r = classify_tool_execution("curl", 7, "", "curl: (7) Failed to connect")
         self.assertTrue(r["execution_failure"])
         self.assertEqual(r["failure_category"], "CONNECTION_REFUSED")
-
 
 class TestTargetResponsesNotFlagged(unittest.TestCase):
     def test_normal_200_is_not_a_failure(self):
@@ -70,7 +67,6 @@ class TestTargetResponsesNotFlagged(unittest.TestCase):
         # it reached the target and is a legitimate signal for the agent to reason about.
         r = classify_tool_execution("curl", 0, '{"error":"User not found."}', "")
         self.assertFalse(r["execution_failure"])
-
 
 class TestZeroExitOutputIsNeverAFailure(unittest.TestCase):
     """Regression: a command that exited 0 succeeded — failure phrases in its OUTPUT
@@ -104,7 +100,6 @@ class TestZeroExitOutputIsNeverAFailure(unittest.TestCase):
         r = classify_tool_execution("python", None, "", "ModuleNotFoundError: No module named 'pwn'")
         self.assertTrue(r["execution_failure"])
         self.assertEqual(r["failure_category"], "MISSING_DEP")
-
 
 if __name__ == "__main__":
     unittest.main()

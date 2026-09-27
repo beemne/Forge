@@ -19,6 +19,15 @@ import sys
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
+
 from backend.tools.manager import tool_manager, ToolExecutionResult
 from backend.execution.service import execution_service
 from backend.execution.interactive import interactive_manager
@@ -26,20 +35,11 @@ from backend.execution.process_manager import process_manager
 from backend.agent_runtime.action import Action, ActionType, ExecResult
 from backend.agent_runtime.runtime import RealToolExecutor
 from backend.agent_runtime.decision import DecisionEngine
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 PY = sys.executable or "python"
 
-
 def _run(coro):
     return asyncio.run(coro)
-
 
 # ── Local deterministic interactive child fixture ─────────────────────────── #
 FAKE_DIALOGUE_CHILD = """\
@@ -63,7 +63,6 @@ else:
     sys.stdout.write("REJECTED_STAGE_ONE\\n")
     sys.stdout.flush()
 """
-
 
 class TestInteractiveAgentIntegration(unittest.TestCase):
 
@@ -125,7 +124,6 @@ class TestInteractiveAgentIntegration(unittest.TestCase):
             self.assertEqual(snr_res.status, "SUCCESS")
             self.assertIn("STAGE_TWO_CLEARED", snr_res.stdout)
             self.assertIn("FLAG{interactive_dialogue_success}", snr_res.stdout)
-
 
             # Close the session
             close_res: ToolExecutionResult = await tool_manager.execute_raw_command(
@@ -372,7 +370,6 @@ class TestInteractiveAgentIntegration(unittest.TestCase):
             # 2. Verify session was retained across turns and final flag observed
             # RunResult carries flag_candidates directly (no .session attribute).
             self.assertIn("FLAG{interactive_dialogue_success}", result.flag_candidates)
-
 
             # 3. Verify session was cleanly closed and no orphan process remains
             self.assertIsNone(interactive_manager.get(sess_key))

@@ -17,18 +17,17 @@ import unittest
 import tempfile
 import shutil
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.knowledge.playbook_vault import PlaybookVault, PlaybookSchema
 from backend.knowledge.ingest_writeup import sanitize_playbook_content, infer_expected_outcome_signatures, parse_writeup_content
-
 
 class TestUpgradedPlaybookVault(unittest.TestCase):
 
@@ -227,7 +226,6 @@ class TestUpgradedPlaybookVault(unittest.TestCase):
         outcomes = infer_expected_outcome_signatures(sqli_content, category="web")
         self.assertTrue(len(outcomes) > 0)
         self.assertTrue(any("SQL syntax" in o for o in outcomes))
-
 
 if __name__ == "__main__":
     unittest.main()

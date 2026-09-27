@@ -10,14 +10,14 @@ import os
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.agents.artifact_classifier import (
     classify_http_response,
@@ -27,7 +27,6 @@ from backend.agents.artifact_classifier import (
 
 ELF_MAGIC = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 24
 ZIP_MAGIC = b"\x50\x4b\x03\x04" + b"\x00" * 20
-
 
 class TestHttpClassification(unittest.TestCase):
     def test_octet_stream_is_binary(self):
@@ -62,7 +61,6 @@ class TestHttpClassification(unittest.TestCase):
     def test_json_api_is_not_binary(self):
         r = classify_http_response("http://x/api", "application/json", "nginx", 40, b'{"ok":true}')
         self.assertFalse(r.is_binary)
-
 
 class TestLocalFileClassification(unittest.TestCase):
     def test_elf_magic_local_file(self):
@@ -104,7 +102,6 @@ class TestLocalFileClassification(unittest.TestCase):
         r = classify_local_file("/no/such/file.bin")
         self.assertFalse(r.is_binary)
 
-
 class TestSaveArtifactByteExactness(unittest.TestCase):
     def test_bytes_roundtrip_sha256(self):
         # Include non-UTF-8 bytes that a text-mode decode(errors="replace") would corrupt.
@@ -126,7 +123,6 @@ class TestSaveArtifactByteExactness(unittest.TestCase):
                 self.assertEqual(fh.read(), raw1)
             with open(p2, "rb") as fh:
                 self.assertEqual(fh.read(), raw2)
-
 
 if __name__ == "__main__":
     unittest.main()

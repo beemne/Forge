@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from backend.config import settings
 from backend.auth import require_api_key
+from backend.database.guard import authorize_production_database
 from backend.database.session import init_db
 from backend.api.routes import router as api_router
 from backend.websocket.manager import ws_manager
@@ -68,6 +69,12 @@ def _mark_stale_runs_interrupted():
 
 @app.on_event("startup")
 def on_startup():
+    # The production entrypoint. Both launchers -- this module's __main__ and
+    # launch_forge.py -- serve backend.main:app, so authorizing here covers them, and
+    # this is the only place the production database is authorized. A test process
+    # never runs this hook, so tests cannot open forge.db however they are launched.
+    # See backend/database/guard.py.
+    authorize_production_database()
     logger.info("Initializing database tables...")
     init_db()
     _mark_stale_runs_interrupted()

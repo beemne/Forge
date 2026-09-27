@@ -1,17 +1,34 @@
 import logging
 import os
+from typing import Optional
 from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
 from backend.config import settings
+from backend.database.guard import DatabaseIsolationError, assert_database_permitted
 from backend.database.models import Base, SchemaVersionModel
 
 logger = logging.getLogger("forge.database.session")
 
 _engine_cache = {}
 
+
+def _resolve_database_url() -> str:
+    """The database URL this process will use.
+
+    The environment is consulted first on purpose: tests/test_schema_migrations.py
+    repoints DATABASE_URL per test (setUp/tearDown) at a temp-directory database, and
+    settings.DATABASE_URL is fixed at import time so it cannot reflect that switch.
+    """
+    return os.getenv("DATABASE_URL", settings.DATABASE_URL)
+
+
 # Database engine initialization (Supports SQLite out-of-the-box and PostgreSQL)
-def get_engine():
-    current_url = os.getenv("DATABASE_URL", settings.DATABASE_URL)
+def get_engine(url: Optional[str] = None):
+    current_url = url or _resolve_database_url()
+    # Structural safety check, before the engine exists and before the cache is
+    # consulted -- a cached production engine must not be handed out either. Raises
+    # before create_engine(), so a denial opens no connection and caches nothing.
+    assert_database_permitted(current_url)
     if current_url in _engine_cache:
         return _engine_cache[current_url]
     kwargs = {}
@@ -165,9 +182,12 @@ def _run_schema_migrations(conn) -> None:
 
 
 def init_db():
-    eng = get_engine()
+    # Resolved once and handed to get_engine(): the branch below decides whether to
+    # apply the SQLite-flavoured migrations, so an independent second read here could
+    # disagree with the database the engine was actually built for.
+    current_url = _resolve_database_url()
+    eng = get_engine(current_url)
     Base.metadata.create_all(bind=eng)
-    current_url = os.getenv("DATABASE_URL", settings.DATABASE_URL)
     # These statements are SQLite-flavoured column additions, and have always
     # been applied on SQLite only; PostgreSQL deployments take their schema from
     # create_all(). Unchanged by the move to versioned migrations.
@@ -187,11 +207,19 @@ def init_db():
     try:
         from backend.knowledge.experience_memory import experience_memory as _em
         _em.reload_index()
+    except DatabaseIsolationError:
+        # A guard denial is never downgraded to "skip the warm-up". Continuing with an
+        # empty index that silently stands in for real data is the same failure shape as
+        # the DATABASE_URL bug this guard exists to stop. Every other failure below
+        # stays non-fatal by design.
+        raise
     except Exception:
         pass
     try:
         from backend.agent_runtime.trajectory import trajectory_search as _ts
         _ts.reload_index()
+    except DatabaseIsolationError:
+        raise
     except Exception:
         pass
 

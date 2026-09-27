@@ -6,7 +6,7 @@ Three things the versioned migration list has to get right:
 
   1. A fresh database ends up with exactly one `schema_version` row per migration,
      numbered 1..N with no gaps.
-  2. A database that predates this mechanism — all 20 columns already present (the
+  2. A database that predates this mechanism — every column already present (the
      old try/except loop applied them silently), no `schema_version` rows — is
      backfilled on the next boot without raising and without operator action.
   3. A migration that fails for a reason OTHER than "column already exists" stops
@@ -24,13 +24,12 @@ import unittest
 
 from sqlalchemy import text
 
-# Import FIRST, redirect SECOND.
-#
-# backend/config.py runs load_dotenv(dotenv_path=".env", override=True), and .env
-# sets DATABASE_URL=sqlite:///./forge.db. `override=True` rewrites os.environ, so a
-# DATABASE_URL assigned *before* these imports is silently discarded and the tests
-# would run against the real production forge.db. The assignment below therefore has
-# to come after the imports, and setUp() asserts that it actually took.
+# No module-level DATABASE_URL pin on purpose: setUp() points DATABASE_URL at a throwaway
+# file per test and get_engine() re-reads the variable on every call, so the engine is built
+# from that per-test value. backend/config.py no longer writes to os.environ (real environment
+# variables win over .env), and backend/database/guard.py refuses the production forge.db
+# outright, so this module cannot reach production even if setUp() were wrong -- setUp()
+# asserts the redirect landed anyway, for the subtler case of landing on another file.
 from backend.database import session as session_module
 from backend.database.models import Base
 from backend.database.session import (
@@ -40,7 +39,11 @@ from backend.database.session import (
     init_db,
 )
 
-MIGRATION_COUNT = 20
+# Kept as a literal on purpose: it is the canary for a migration appended to
+# backend/database/session.py's MIGRATIONS list without updating this file. Deriving it
+# from len(MIGRATIONS) would make the test agree with whatever it found, which is the
+# opposite of what it is for.
+MIGRATION_COUNT = 21
 LOGGER_NAME = "forge.database.session"
 
 
@@ -54,9 +57,9 @@ class SchemaMigrationTestBase(unittest.TestCase):
         self.url = "sqlite:///" + self.db_path.replace("\\", "/")
         os.environ["DATABASE_URL"] = self.url
 
-        # The .env override is invisible when it bites, so prove the redirect landed
-        # rather than trusting it. Without this check a mistake here would quietly
-        # point every assertion below at the production database.
+        # Prove the redirect landed rather than trusting it: without this check a mistake
+        # here would quietly point every assertion below at the wrong database. (The guard
+        # would refuse production outright; this catches landing on another file.)
         self.assertEqual(os.getenv("DATABASE_URL"), self.url)
         self.assertNotEqual(
             os.path.realpath("forge.db"), os.path.realpath(self.db_path),
@@ -159,8 +162,8 @@ class PreexistingDatabaseTests(SchemaMigrationTestBase):
     def _build_pre_change_database(self):
         """Build a database shaped like one created before this change.
 
-        `create_all()` builds the tables from the CURRENT models, so all 20 columns
-        are already present — precisely the state an old database reached by having
+        `create_all()` builds the tables from the CURRENT models, so every column is
+        already present — precisely the state an old database reached by having
         those ALTER TABLEs silently applied. Dropping `schema_version` afterwards is
         what makes it faithful: no version has ever been recorded.
         """
@@ -179,8 +182,8 @@ class PreexistingDatabaseTests(SchemaMigrationTestBase):
             self._recorded_versions(), list(range(1, MIGRATION_COUNT + 1)),
             "every already-present migration must still be recorded",
         )
-        # Proves the duplicate-column branch — not the failure branch — handled all
-        # 20, rather than the runner silently skipping them.
+        # Proves the duplicate-column branch — not the failure branch — handled every
+        # migration, rather than the runner silently skipping them.
         already_present = [
             r for r in captured.records if "already applied" in r.getMessage()
         ]
@@ -240,7 +243,7 @@ class BrokenMigrationTests(SchemaMigrationTestBase):
         self.assertEqual(len(errors), 1, "exactly one real failure should be logged")
         self.assertIn(broken_statement, errors[0].getMessage())
 
-        # The 20 real migrations still count as applied; the broken one is NOT
+        # Every real migration still counts as applied; the broken one is NOT
         # recorded, so the next boot retries it instead of skipping over it.
         self.assertEqual(
             self._recorded_versions(), list(range(1, MIGRATION_COUNT + 1)),

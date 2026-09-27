@@ -5,6 +5,16 @@ Priority Preemption, and Post-Exploitation Probing.
 import os
 
 import pytest
+
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
+
 from backend.agents.response_profiler import (
     EndpointBaseline,
     ResponseProfiler,
@@ -14,14 +24,6 @@ from backend.agents.response_profiler import (
 )
 from backend.agent_runtime.observation import ObservationEngine
 from backend.agents.swarm_state import SwarmBlackboard
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-
 
 def test_endpoint_baseline_statistical_and_status_anomaly():
     baseline = EndpointBaseline(target_key="http://target.local/upload")
@@ -62,7 +64,6 @@ def test_endpoint_baseline_statistical_and_status_anomaly():
     assert score >= 0.3
     assert any("Structural skeleton hash" in r for r in reasons)
 
-
 def test_generic_artifact_extraction_no_hardcoded_keywords():
     # Arbitrary text from a target response containing URLs, relative paths, directory endpoints, and tokens
     sample_text = (
@@ -87,7 +88,6 @@ def test_generic_artifact_extraction_no_hardcoded_keywords():
     assert "/var/data/custom_dir/my_solver.phtml" in raw_values or any("my_solver.phtml" in v for v in raw_values)
     assert "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d" in raw_values
 
-
 def test_post_exploitation_probe_generation():
     probes_php = generate_post_exploitation_probes("http://target.local/uploads/shell.php")
     assert len(probes_php) >= 3
@@ -97,7 +97,6 @@ def test_post_exploitation_probe_generation():
     probes_rel = generate_post_exploitation_probes("files/payload.phtml", base_url="http://target.local:5000/")
     assert any("http://target.local:5000/files/payload.phtml" in p for p in probes_rel)
     assert any("cat+/flag" in p for p in probes_rel)
-
 
 def test_response_profiler_simulation_of_failure_and_exploit_anomaly():
     profiler = ResponseProfiler()
@@ -117,7 +116,6 @@ def test_response_profiler_simulation_of_failure_and_exploit_anomaly():
     assert len(res_anom.candidate_artifacts) > 0
     candidate_targets = [c.normalized_target for c in res_anom.candidate_artifacts]
     assert any("assets/uploads/custom_shell.php" in t for t in candidate_targets)
-
 
 def test_observation_engine_detects_anomaly_and_candidates():
     engine = ObservationEngine()
@@ -159,7 +157,6 @@ def test_observation_engine_detects_anomaly_and_candidates():
     assert obs.anomalous_response is not None
     assert obs.novelty is True
     assert any("uploaded_exploit.php" in ep for ep in obs.new_endpoints)
-
 
 def test_swarm_blackboard_actionable_preemption_and_history():
     board = SwarmBlackboard(

@@ -36,14 +36,14 @@ import asyncio
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 # Import AFTER DATABASE_URL is set so the module-level singletons bind to the
 # isolated test database.
@@ -62,7 +62,6 @@ FLAG = "picoCTF{r34l_ss7i_run_2026}"
 TARGET = "http://ssti.forge-range.ctf:8080"
 SECRET = "R3dTeamAdminSecret!"
 TARGET_IP = "10.10.14.55"
-
 
 def _solved_ssti_board(challenge_id="itg-chal-1", run_id="itg-run-1", name="Reflected Greeting"):
     """Build a REAL SwarmBlackboard populated the way a real solved run would be:
@@ -95,7 +94,6 @@ def _solved_ssti_board(challenge_id="itg-chal-1", run_id="itg-run-1", name="Refl
     board.flag_captured = FLAG
     return board
 
-
 def _similar_ssti_board(challenge_id="itg-chal-2", run_id="itg-run-2", name="Name Echo"):
     """A DIFFERENT later challenge with the same SSTI-shaped fingerprint, used to
     prove retrieval pulls the earlier run's experience into this run's context."""
@@ -108,7 +106,6 @@ def _similar_ssti_board(challenge_id="itg-chal-2", run_id="itg-run-2", name="Nam
     board.discovered_endpoints.update(["/", "/echo", "/profile"])
     board.extracted_headers.update({"Server": "Werkzeug/2.0 Python/3.10", "X-Powered-By": "Flask"})
     return board
-
 
 def _run_retrieval_phase(board):
     """Faithful in-test replica of the ONE shared retrieval phase run_swarm runs
@@ -128,7 +125,6 @@ def _run_retrieval_phase(board):
     if memories:
         experience_memory.record_retrieval(board.retrieved_memory_ids, board.run_id, board.challenge_id)
     return mem_context, memories
-
 
 class MemoryIntegrationTest(unittest.TestCase):
     @classmethod
@@ -296,7 +292,6 @@ class MemoryIntegrationTest(unittest.TestCase):
         self.assertIsNotNone(promoted, "promoted playbook should exist in the vault")
         import json
         self.assertNotIn(FLAG, json.dumps(promoted.model_dump()), "promoted playbook must stay generalized")
-
 
 if __name__ == "__main__":
     unittest.main()

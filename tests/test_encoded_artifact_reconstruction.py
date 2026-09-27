@@ -22,14 +22,14 @@ import os
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.agents.artifact_reconstruction import (
     ReconState,
@@ -43,14 +43,12 @@ from backend.agents.artifact_reconstruction import (
 from backend.agents.swarm_orchestrator import SwarmOrchestrator
 from backend.agents.swarm_state import SwarmBlackboard
 
-
 # --------------------------------------------------------------------------- #
 # Helpers — build REAL byte payloads from magic signatures (no stored fixtures)
 # --------------------------------------------------------------------------- #
 
 def _bytes_to_bits(data: bytes) -> str:
     return "".join(f"{b:08b}" for b in data)
-
 
 def _make_jpeg(payload_len: int = 600) -> bytes:
     """A byte blob that begins with the real JPEG/JFIF magic and ends with EOI.
@@ -62,12 +60,10 @@ def _make_jpeg(payload_len: int = 600) -> bytes:
     body = bytes((i * 7 + 3) & 0xFF for i in range(max(0, payload_len - len(head) - 2)))
     return head + body + b"\xff\xd9"
 
-
 def _make_png(payload_len: int = 300) -> bytes:
     sig = b"\x89PNG\r\n\x1a\n"
     body = bytes((i * 5 + 1) & 0xFF for i in range(max(0, payload_len - len(sig))))
     return sig + body
-
 
 # --------------------------------------------------------------------------- #
 # Detection + reconstruction (pure, deterministic)
@@ -179,7 +175,6 @@ class TestReconstructionCore(unittest.TestCase):
         self.assertFalse(is_image_type("elf"))
         self.assertFalse(is_image_type("generic_binary"))
 
-
 # --------------------------------------------------------------------------- #
 # Persistence with provenance (requirement #5)
 # --------------------------------------------------------------------------- #
@@ -209,7 +204,6 @@ class TestPersistence(unittest.TestCase):
             self.assertEqual(meta["artifact_type"], "jpeg")
             self.assertIn("DO NOT EXECUTE", meta["security_note"])
             self.assertEqual(meta["output_sha256"], hashlib.sha256(jpeg).hexdigest())
-
 
 # --------------------------------------------------------------------------- #
 # Live-engine escalation (requirements #6/#11/#12/#14)
@@ -294,7 +288,6 @@ class TestSwarmEscalation(unittest.IsolatedAsyncioTestCase):
             # 3) FORGE fabricated nothing: opaque JPEG bytes are not printable, so no
             #    flag candidate was invented (flags come only from real readable output).
             self.assertEqual(board.flag_candidates, [])
-
 
 if __name__ == "__main__":
     unittest.main()

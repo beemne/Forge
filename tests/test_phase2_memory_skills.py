@@ -33,16 +33,14 @@ import shutil
 import tempfile
 import unittest
 
-# Bind every module-level singleton to the isolated unit-test database BEFORE the
-# backend is imported (project NO-DEMO-DATA / isolated-test-DB directive, rule 5).
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import (
@@ -61,7 +59,6 @@ from backend.knowledge.memory_retriever import memory_retriever
 from backend.knowledge.experience_extractor import experience_extractor
 from backend.knowledge.memory_models import ExperienceRecord, infer_environment_requirements
 from backend.knowledge.playbook_vault import PlaybookVault
-
 
 # --------------------------------------------------------------------------- #
 # Local test doubles — the spec's mock provider + mock tool executor.
@@ -97,7 +94,6 @@ class ScriptedProvider:
         return ProviderCompletion(content=content, provider_name=self.provider_name,
                                   model_name=self.model_name, prompt_tokens=12, completion_tokens=8)
 
-
 class ScriptedToolExecutor:
     """Returns queued ExecResults; matches by command substring or by call order."""
 
@@ -117,7 +113,6 @@ class ScriptedToolExecutor:
             return self.sequence.pop(0)
         return self.default
 
-
 def _cancel_after(n):
     """A cancel_check that returns True starting on the (n+1)-th call (a simulated stop)."""
     state = {"i": 0}
@@ -126,7 +121,6 @@ def _cancel_after(n):
         state["i"] += 1
         return state["i"] > n
     return check
-
 
 # --------------------------------------------------------------------------- #
 
@@ -212,7 +206,6 @@ class Phase2TestBase(unittest.IsolatedAsyncioTestCase):
         return ExecResult(command=command, status="SUCCESS", exit_code=0,
                           stdout=("Server: Apache/2.4\nX-Powered-By: PHP/7.4\n"
                                   f"<a href=\"{upload_url}\">upload avatar</a>"))
-
 
 # =========================================================================== #
 # Steps 1-3: session/trajectory -> experience extraction (success & failure)
@@ -302,7 +295,6 @@ class TestTrajectoryToExperience(Phase2TestBase):
         self.assertEqual(exps[0]["source"], "forge_trajectory")
         self.assertLessEqual(exps[0]["confidence"], 0.5)  # a single unproven run is low-confidence
 
-
 # =========================================================================== #
 # Steps 4-6: retrieval, FTS5 search, ranking
 # =========================================================================== #
@@ -370,7 +362,6 @@ class TestRetrievalSearchRanking(Phase2TestBase):
         self.assertTrue(mems)
         self.assertEqual(mems[0].id, up_id)  # same-class verified experience ranks first
 
-
 # =========================================================================== #
 # Steps 7-9: promotion, confidence update, staleness
 # =========================================================================== #
@@ -420,7 +411,6 @@ class TestPromotionConfidenceStaleness(Phase2TestBase):
         # Still present — knowledge is decayed, never blindly deleted (Step 15).
         self.assertIsNotNone(experience_memory.get(eid))
 
-
 # =========================================================================== #
 # Step 10 + 14: memory-usage telemetry
 # =========================================================================== #
@@ -447,7 +437,6 @@ class TestMemoryUsageTelemetry(Phase2TestBase):
         self.assertIn("contributed", events)
         self.assertIn("contradicted", events)
         self.assertGreaterEqual(experience_memory.get(eid)["times_retrieved"], 1)
-
 
 # =========================================================================== #
 # Steps 12 + 19: environment-aware skills (Windows core / Linux execution)
@@ -508,7 +497,6 @@ class TestEnvironmentAwareSkills(Phase2TestBase):
         self.assertTrue(caps.satisfies({"required_os": "any"}))
         self.assertEqual(caps.fit_score({"required_os": "any", "tools": []}), 1.0)
 
-
 # =========================================================================== #
 # Step 12 (Step 17.12): provider switching preserves FORGE-owned memory
 # =========================================================================== #
@@ -556,7 +544,6 @@ class TestProviderSwitchPreservesMemory(Phase2TestBase):
         # The mission's own new experience was learned despite the provider change.
         self.assertGreaterEqual(len(experience_memory.list_experiences(limit=50)), 2)
 
-
 # =========================================================================== #
 # Step 5/9: cross-session failed-approach recall
 # =========================================================================== #
@@ -583,7 +570,6 @@ class TestCrossSessionFailureRecall(Phase2TestBase):
         self.assertIn("CROSS-SESSION", text.upper())
         # The current session's own events are excluded from its cross-session recall.
         self.assertNotIn(s2.id, text)
-
 
 # =========================================================================== #
 # Step 20: ACCEPTANCE — Mission A teaches a different Mission B (self-improvement)
@@ -665,7 +651,6 @@ class TestAcceptanceMissionAtoB(Phase2TestBase):
         all_exps = experience_memory.list_experiences(limit=10)
         self.assertEqual(len(all_exps), 2)
         self.assertTrue(all(e["source"] == "forge_trajectory" for e in all_exps))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

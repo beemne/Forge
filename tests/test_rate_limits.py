@@ -11,14 +11,14 @@ Covers:
 import os
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.providers.rate_limits import (
     parse_ratelimit_headers,
@@ -27,7 +27,6 @@ from backend.providers.rate_limits import (
 )
 from backend.providers.quota_manager import AgentRouterQuotaManager
 from backend.providers.real_providers import _max_tokens_floor
-
 
 class TestDurationParsing(unittest.TestCase):
     def test_compound_and_bare(self):
@@ -38,7 +37,6 @@ class TestDurationParsing(unittest.TestCase):
         self.assertEqual(parse_duration_seconds(""), None)
         self.assertEqual(parse_duration_seconds(None), None)
 
-
 class TestScopeClassification(unittest.TestCase):
     def test_scope_boundaries(self):
         self.assertEqual(classify_scope(30), "minute")
@@ -46,7 +44,6 @@ class TestScopeClassification(unittest.TestCase):
         self.assertEqual(classify_scope(600), "hour")
         self.assertEqual(classify_scope(6 * 3600), "day")
         self.assertEqual(classify_scope(None), "unknown")
-
 
 class TestGroqDayScopeMislabel(unittest.TestCase):
     def test_groq_daily_bucket_not_labeled_per_minute(self):
@@ -74,7 +71,6 @@ class TestGroqDayScopeMislabel(unittest.TestCase):
     def test_no_ratelimit_headers_returns_none(self):
         self.assertIsNone(parse_ratelimit_headers("x", {"content-type": "application/json"}))
 
-
 class TestHeadroomQueries(unittest.TestCase):
     def test_near_ceiling_and_headroom(self):
         qm = AgentRouterQuotaManager()
@@ -89,7 +85,6 @@ class TestHeadroomQueries(unittest.TestCase):
         self.assertIsNone(qm.get_headroom("never_seen"))
         self.assertFalse(qm.is_near_ceiling("never_seen"))
 
-
 class TestGlmMaxTokensFloor(unittest.TestCase):
     def test_glm_floored(self):
         self.assertGreaterEqual(_max_tokens_floor("z-ai/glm-5.3-flash"), 2048)
@@ -98,7 +93,6 @@ class TestGlmMaxTokensFloor(unittest.TestCase):
     def test_non_glm_no_floor(self):
         self.assertEqual(_max_tokens_floor("qwen/qwen3.8-27b"), 0)
         self.assertEqual(_max_tokens_floor("deepseek/deepseek-chat"), 0)
-
 
 if __name__ == "__main__":
     unittest.main()

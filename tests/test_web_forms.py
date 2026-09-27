@@ -16,14 +16,14 @@ import unittest
 import codecs
 import os
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.recon.web_forms import describe_form, extract_forms, verify_template_probe
 from backend.agents.swarm_state import SwarmBlackboard
@@ -60,7 +60,6 @@ EMPTY_ANNOUNCE_BODY = """
 
 # The exact ROT13 hint the existing swarm test relies on.
 ROT13_HINT = 'ABGR: Wnpx - grzcbenel olcnff: hfr urnqre "K-Qri-Npprff: lrf"'
-
 
 class TestExtractForms(unittest.TestCase):
     """The field names an agent may legitimately post to."""
@@ -138,7 +137,6 @@ class TestExtractForms(unittest.TestCase):
                      "@@@@ #### %%%% ^^^^", "nmap scan report for 10.10.14.23"):
             self.assertEqual(extract_forms(text, base_url="http://host/"), [])
 
-
 class TestDescribeForm(unittest.TestCase):
     """The one line that reaches the challenge log and every agent prompt."""
 
@@ -154,7 +152,6 @@ class TestDescribeForm(unittest.TestCase):
         fields = [{"name": f"f{i}", "type": "text", "id": ""} for i in range(12)]
         line = describe_form({"action": "/x", "method": "POST", "fields": fields})
         self.assertIn("+4 more", line)
-
 
 class TestVerifyTemplateProbe(unittest.TestCase):
     """Did the self-checking payload actually render?"""
@@ -218,7 +215,6 @@ class TestVerifyTemplateProbe(unittest.TestCase):
         self.assertFalse(partly["delivered"])
         self.assertEqual(partly["payload"], "{{8*8}}")
 
-
 class TestRot13Guard(unittest.TestCase):
     """ROT13 'decoding' of already-plain text is noise, not a finding."""
 
@@ -261,7 +257,6 @@ class TestRot13Guard(unittest.TestCase):
         decodes = _decode_artifacts("Q29uZ3JhdHVsYXRpb25zISBZb3UgZm91bmQgdGhlIHNlY3JldC4=")
         self.assertTrue(any(d["scheme"] == "base64" for d in decodes), f"base64 regressed: {decodes}")
 
-
 class TestFormsInSharedContext(unittest.TestCase):
     """Every agent must see the real field names, not just the one that found them."""
 
@@ -277,7 +272,6 @@ class TestFormsInSharedContext(unittest.TestCase):
     def test_no_form_line_when_nothing_observed(self):
         board = SwarmBlackboard("t_ch", "t_run", "http://host/")
         self.assertNotIn("Known web forms", board.build_history_context("agent_1"))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,14 +31,14 @@ import asyncio
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 # Import AFTER DATABASE_URL is set so module-level singletons bind to the test DB.
 from backend.database.session import init_db, SessionLocal
@@ -57,7 +57,6 @@ from backend.swarm import (
     Evidence,
 )
 
-
 # --------------------------------------------------------------------------- #
 # Local test doubles (mirror tests/test_phase5_reasoning.py; add an id so the
 # observability provenance can carry a memory id).
@@ -73,7 +72,6 @@ class FakeMemory:
         self.calls += 1
         return list(self._memories)
 
-
 class FakeRetrievedMemory:
     def __init__(self, technique, *, kind="experience", strategy="", confidence=0.6,
                  success_rate=1.0, category="web", id="", outcome="success"):
@@ -85,7 +83,6 @@ class FakeRetrievedMemory:
         self.category = category
         self.id = id
         self.outcome = outcome
-
 
 def _exp(technique, *, category="web", technologies=None, outcome="success",
          confidence=0.8, difficulty="MEDIUM", tags=None, source_run_id=None):
@@ -102,7 +99,6 @@ def _exp(technique, *, category="web", technologies=None, outcome="success",
         outcome=outcome,
         confidence=confidence,
     )
-
 
 def _failed_web_board(challenge_id="p6-fail-1", run_id="p6-failrun-1",
                       name="Unsolved Portal", with_history=True):
@@ -127,7 +123,6 @@ def _failed_web_board(challenge_id="p6-fail-1", run_id="p6-failrun-1",
                                 output="no injection point identified", note="sqli attempt failed")
     # No flag captured — board.flag_captured left falsy.
     return board
-
 
 # --------------------------------------------------------------------------- #
 # Shared base: isolated DB + temp vault sink (private-vault rule).
@@ -179,7 +174,6 @@ class Phase6Base(unittest.TestCase):
         exp_id = experience_memory.store(record)
         self.assertTrue(exp_id)
         return exp_id
-
 
 # =========================================================================== #
 # Part 9 — Contextual success statistics                                       #
@@ -243,7 +237,6 @@ class TestContextualStatistics(Phase6Base):
         self.assertEqual(s["global"]["success_rate"], 0.0)
         rate, _ = stats.contextual_success_rate("heap grooming tcache poisoning", category="pwn")
         self.assertIsNone(rate)
-
 
 # =========================================================================== #
 # Part 8 — Learning from FAILURE (the swarm now learns from stalled runs)       #
@@ -316,7 +309,6 @@ class TestFailureLearning(Phase6Base):
         after = experience_memory.get(exp_id)
         self.assertEqual(after["times_successful"], (before["times_successful"] or 0) + 1)
         self.assertGreater(after["confidence"], before["confidence"])
-
 
 # =========================================================================== #
 # Parts 6/7 — Retrieval → candidates; memory informs but never controls         #
@@ -397,7 +389,6 @@ class TestMemoryInfluencesReasoning(Phase6Base):
         # The blocked-capability candidate is dropped by the prefilter — not run.
         self.assertFalse(any(c.capability == "ocr" for c in decision.ranked))
 
-
 # =========================================================================== #
 # Part 13 — Observability of WHY learned knowledge affected a decision          #
 # =========================================================================== #
@@ -458,7 +449,6 @@ class TestObservability(Phase6Base):
         # No stats wired → no contextual fields fabricated.
         self.assertNotIn("contextual_success_rate", c.historical_support)
 
-
 # =========================================================================== #
 # Zero-regression guarantee — no stats wired == exact Phase-5 behaviour          #
 # =========================================================================== #
@@ -490,7 +480,6 @@ class TestZeroRegressionFallback(Phase6Base):
         expected = max(0.0, min(1.0, 0.35 + 0.4 * 0.5 * 0.5))
         self.assertAlmostEqual(c.success_probability, expected, places=6)
 
-
 # =========================================================================== #
 # Part 2 — Experience distinguishes success (fact) from failure (no fact)        #
 # =========================================================================== #
@@ -517,7 +506,6 @@ class TestExperienceExtractionOutcome(Phase6Base):
         self.assertEqual(rec.outcome, "success")
         self.assertTrue(rec.vulnerabilities)               # a confirmed technique/fact
         self.assertGreater(rec.confidence, 0.5)
-
 
 if __name__ == "__main__":
     unittest.main()

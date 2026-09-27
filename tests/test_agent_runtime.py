@@ -15,14 +15,14 @@ import os
 import asyncio
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import (
@@ -35,7 +35,6 @@ from backend.agent_runtime import (
     SessionManager, session_manager, trajectory_store, trajectory_search,
 )
 from backend.agent_runtime.decision import ProviderCompletion
-
 
 # --------------------------------------------------------------------------- #
 # Local test doubles (the spec's mock provider + mock tool executor)
@@ -71,7 +70,6 @@ class ScriptedProvider:
         return ProviderCompletion(content=content, provider_name=self.provider_name,
                                   model_name=self.model_name, prompt_tokens=12, completion_tokens=8)
 
-
 class ScriptedToolExecutor:
     """Returns queued ExecResults; matches by command substring or by call order."""
 
@@ -91,7 +89,6 @@ class ScriptedToolExecutor:
             return self.sequence.pop(0)
         return self.default
 
-
 def _cancel_after(n):
     """A cancel_check that returns True starting on the (n+1)-th call (simulating a stop)."""
     state = {"i": 0}
@@ -100,7 +97,6 @@ def _cancel_after(n):
         state["i"] += 1
         return state["i"] > n
     return check
-
 
 class RuntimeTestBase(unittest.IsolatedAsyncioTestCase):
     @classmethod
@@ -125,7 +121,6 @@ class RuntimeTestBase(unittest.IsolatedAsyncioTestCase):
 
     def _runtime(self, provider, executor):
         return AgentRuntime(tool_executor=executor, provider_gateway=provider)
-
 
 # --------------------------------------------------------------------------- #
 # 1–4: session + trajectory persistence
@@ -176,7 +171,6 @@ class TestSessionAndTrajectory(RuntimeTestBase):
         events = trajectory_store.get_events(sess.id)
         self.assertTrue(any("nmap" in (e.command or "") for e in events))
 
-
 # --------------------------------------------------------------------------- #
 # 5–7: command execution → observation → state update (through the real loop)
 # --------------------------------------------------------------------------- #
@@ -208,7 +202,6 @@ class TestLoopCoreCycle(RuntimeTestBase):
         self.assertTrue(any("login" in ep for ep in reloaded.state.known_endpoints))
         self.assertIn("nginx", reloaded.state.technologies)
 
-
 # --------------------------------------------------------------------------- #
 # 8: repetition detection (unit + in-loop)
 # --------------------------------------------------------------------------- #
@@ -238,7 +231,6 @@ class TestRepetition(RuntimeTestBase):
         self.assertEqual(len(curl_runs), 1)
         events = trajectory_store.get_events(sess.id)
         self.assertTrue(any(e.event_type == "REPLAN" for e in events))
-
 
 # --------------------------------------------------------------------------- #
 # 9: failed command recovery
@@ -274,7 +266,6 @@ class TestRecovery(RuntimeTestBase):
         self.assertTrue(any(e.event_type in ("RECOVERY", "REPLAN") for e in events))
         reloaded = session_manager.get(sess.id)
         self.assertTrue(reloaded.state.failed_techniques)  # failure was recorded, not silently dropped
-
 
 # --------------------------------------------------------------------------- #
 # 10 & 15: provider failure recovery + switching without session loss
@@ -330,7 +321,6 @@ class TestProviderIndependence(RuntimeTestBase):
         self.assertEqual(final.provider_name, "prov-B")
         self.assertTrue(final.state.known_endpoints)  # earlier provider-A discoveries retained
 
-
 # --------------------------------------------------------------------------- #
 # 11 & 12: flag candidate vs verification
 # --------------------------------------------------------------------------- #
@@ -371,7 +361,6 @@ class TestFlagLifecycle(RuntimeTestBase):
         self.assertEqual(final.status, "COMPLETED")
         events = trajectory_store.get_events(sess.id)
         self.assertTrue(any(e.event_type == "ANSWER_RESOLVED" for e in events))
-
 
 # --------------------------------------------------------------------------- #
 # 13: checkpoint restore (integrates with the existing checkpoint_manager)
@@ -418,7 +407,6 @@ class TestCheckpointRestore(RuntimeTestBase):
         finally:
             db.close()
 
-
 # --------------------------------------------------------------------------- #
 # 14: FTS5 local search over the trajectory
 # --------------------------------------------------------------------------- #
@@ -442,7 +430,6 @@ class TestFtsSearch(RuntimeTestBase):
         # Filter by event_type + a term that only the ffuf row matches.
         hits2 = trajectory_search.search("admin fuzz", top_k=5)
         self.assertTrue(any("ffuf" in (h["command"] or "") for h in hits2))
-
 
 # --------------------------------------------------------------------------- #
 # Acceptance criterion: crash after Turn 7 → resume → continue from Turn 8
@@ -497,7 +484,6 @@ class TestCrashResumeAcceptance(RuntimeTestBase):
         # The post-resume events are strictly after the crash sequence.
         post = [e for e in events if e.command and "cat /flag.txt" in e.command]
         self.assertTrue(post and all(e.sequence > seq_at_crash for e in post))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -22,24 +22,23 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
 from backend.database.session import init_db
 
 _IS_WINDOWS = sys.platform == "win32"
 PY = sys.executable  # the real interpreter (avoids the Windows Store 'python' alias)
 
-
 def _run(coro):
     return asyncio.run(coro)
-
 
 # A tiny interactive challenge: prints a prompt, reads a line, prints the flag on
 # the control string "RETURN 0" (the Flag Hunters shape), else prints "nope".
@@ -60,14 +59,12 @@ SLEEP_CHILD = "import time\ntime.sleep(30)\n"
 # A child that prints one line and exits immediately (already-dead cleanup tests).
 QUICK_CHILD = "print('bye', flush=True)\n"
 
-
 def _write_child(body: str, name: str = "challenge.py") -> str:
     d = tempfile.mkdtemp(prefix="forge4x_")
     p = os.path.join(d, name)
     with open(p, "w", encoding="utf-8") as f:
         f.write(body)
     return p
-
 
 # --------------------------------------------------------------------------- #
 # Capability / acquisition test doubles (no host mutation, deterministic)
@@ -97,7 +94,6 @@ class FakeCapability:
                 f"acquisition_possible={self.acquisition_possible} "
                 f"recommended_action={self.recommended_action}")
 
-
 class FakeCapabilityService:
     def __init__(self, mapping):
         self.mapping = mapping
@@ -113,7 +109,6 @@ class FakeCapabilityService:
     def refresh(self, name=None):
         pass
 
-
 class FakeAcquisitionPlanner:
     def __init__(self, result):
         self._result = result
@@ -123,7 +118,6 @@ class FakeAcquisitionPlanner:
                       privilege_decider=None):
         self.acquire_calls.append(capability)
         return self._result
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Tier-1 scripted stdin
@@ -176,7 +170,6 @@ class TestScriptedStdin(unittest.TestCase):
         res = _run(ex.execute(Action(type=ActionType.COMMAND, command=f'"{PY}" "{p}"',
                                      stdin="RETURN 0\n"), timeout_seconds=30))
         self.assertIn("picoCTF{flag_hunters_interactive}", res.stdout)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Tier-2 persistent interactive execution
@@ -261,7 +254,6 @@ class TestInteractiveSession(unittest.TestCase):
         for expected in (EVENT_START, EVENT_SEND, EVENT_READ, EVENT_CLOSE):
             self.assertIn(expected, events)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Interactive timeout — cannot hang forever
 # ─────────────────────────────────────────────────────────────────────────────
@@ -301,7 +293,6 @@ class TestInteractiveTimeout(unittest.TestCase):
             self.assertFalse(sess.is_alive())
             self.assertIn(EVENT_TIMEOUT, events)
         _run(scenario())
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Checkpoint safety — restartable spec, never a live handle
@@ -359,7 +350,6 @@ class TestInteractiveCheckpoint(unittest.TestCase):
                 self.assertNotIn(pid, process_manager.active_pids())
         _run(scenario())
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Target-type detection
 # ─────────────────────────────────────────────────────────────────────────────
@@ -414,7 +404,6 @@ class TestTargetDetection(unittest.TestCase):
         self.assertEqual(targets[0].type, self.T.LIVE_HTTP)
         self.assertEqual(targets[2].type, self.T.REMOTE_SERVICE)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Target mismatch
 # ─────────────────────────────────────────────────────────────────────────────
@@ -441,7 +430,6 @@ class TestTargetMismatch(unittest.TestCase):
     def test_no_mismatch_when_unknown(self):
         provided = self.det.detect("http://target:5000")
         self.assertIsNone(self.det.classify_mismatch(self.T.UNKNOWN, provided))
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Capability discovery
@@ -502,7 +490,6 @@ class TestCapabilityDiscovery(unittest.TestCase):
         alts = CapabilityService(registry=registry).alternatives("multi")
         self.assertIn("b1", alts)
         self.assertIn("b2", alts)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Controlled acquisition (privilege-gated; nothing installed for real)
@@ -577,7 +564,6 @@ class TestControlledAcquisition(unittest.TestCase):
         self.assertEqual(len(installer_calls), 1)
         self.assertIn("pip install --user", installer_calls[0])
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. OCR capability + Binary Digits regression
 # ─────────────────────────────────────────────────────────────────────────────
@@ -634,7 +620,6 @@ class TestOCRCapability(unittest.TestCase):
         svc = OCRService(capability_service=FakeCapabilityService({}))
         res = _run(svc.extract_text("/no/such/file.jpg"))
         self.assertEqual(res.status, OCR_NO_INPUT)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. Swarm integration — capability/target gate, no infinite retry
@@ -767,7 +752,6 @@ class TestSwarmCapabilityGate(unittest.TestCase):
         self.assertEqual(sup.decide_recovery(t, R("BLOCKED_CAPABILITY"), max_retries=2).action, "abandon")
         self.assertEqual(sup.decide_recovery(t, R("TARGET_MISMATCH"), max_retries=2).action, "abandon")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. Platform behaviour
 # ─────────────────────────────────────────────────────────────────────────────
@@ -789,7 +773,6 @@ class TestPlatformBehaviour(unittest.TestCase):
         out = _normalise_command("python3 solve.py")
         self.assertTrue(out.endswith("solve.py"))
         self.assertEqual(_normalise_command(""), "")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 12. Trajectory integration for interactive events
@@ -817,7 +800,6 @@ class TestTrajectoryInteractiveEvents(unittest.TestCase):
         kinds = {e.event_type for e in recent}
         self.assertIn(EVENT_START, kinds)
         self.assertIn(EVENT_CLOSE, kinds)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 13. Phase 4.x HARDENING — interactive process lifecycle across checkpoint/resume
@@ -891,7 +873,6 @@ class TestInteractiveResumeLifecycle(unittest.TestCase):
             self.assertEqual(interactive_manager.count(), 0)
         _run(scenario())
 
-
 class TestInteractiveRegistryHygiene(unittest.TestCase):
     """The ProcessManager registry must reflect real process state — no stale rows."""
 
@@ -944,7 +925,6 @@ class TestInteractiveRegistryHygiene(unittest.TestCase):
         from backend.execution.process_manager import process_manager
         self.assertFalse(process_manager.terminate_pid(2_147_480_000))  # not tracked → no-op
 
-
 class TestAppShutdownInteractiveCleanup(unittest.TestCase):
     """Test I — tracked interactive processes must not survive a controlled shutdown."""
 
@@ -966,7 +946,6 @@ class TestAppShutdownInteractiveCleanup(unittest.TestCase):
                 self.assertIsNotNone(s.returncode)          # truly terminated
                 self.assertNotIn(pid, process_manager.active_pids())
         _run(scenario())
-
 
 class TestTaskMetadataResume(unittest.TestCase):
     """Phase 4.x hardening §5/§6 — coordination metadata + gates survive resume."""
@@ -1085,7 +1064,6 @@ class TestTaskMetadataResume(unittest.TestCase):
             self.assertGreaterEqual(len(c2.bus.by_type(EvidenceType.TARGET_MISMATCH.value)), 1)
         finally:
             self._cleanup(mid)
-
 
 if __name__ == "__main__":
     unittest.main()

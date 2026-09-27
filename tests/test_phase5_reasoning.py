@@ -17,14 +17,14 @@ import os
 import asyncio
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import (
@@ -47,7 +47,6 @@ from backend.swarm import (
 from backend.swarm.dedup import action_signature, normalize_target
 from backend.swarm import events as swarm_events
 
-
 # --------------------------------------------------------------------------- #
 # Local test doubles
 # --------------------------------------------------------------------------- #
@@ -55,14 +54,12 @@ from backend.swarm import events as swarm_events
 def _run(coro):
     return asyncio.run(coro)
 
-
 class _R:
     """A minimal agent/task result stand-in for failure classification."""
     def __init__(self, status="FAILED", failure_category="", reason=""):
         self.status = status
         self.failure_category = failure_category
         self.reason = reason
-
 
 class FakeMemory:
     """A memory_retriever double returning canned RetrievedMemory-like objects."""
@@ -74,7 +71,6 @@ class FakeMemory:
         self.calls += 1
         return list(self._memories)
 
-
 class FakeRetrievedMemory:
     def __init__(self, technique, *, kind="experience", strategy="", confidence=0.6,
                  success_rate=1.0, category="web"):
@@ -84,7 +80,6 @@ class FakeRetrievedMemory:
         self.confidence = confidence
         self.success_rate = success_rate
         self.category = category
-
 
 class ProgrammableAgent:
     """A SpecialistAgent double whose result is built by a per-mission responder.
@@ -101,7 +96,6 @@ class ProgrammableAgent:
         rv = self.role.value if hasattr(self.role, "value") else str(self.role)
         self._executed.append((rv, task.objective))
         return self._responder(rv, task)
-
 
 class _CaptureEvents:
     def __init__(self):
@@ -120,7 +114,6 @@ class _CaptureEvents:
 
     def names(self):
         return [e for e, _ in self.events]
-
 
 class Phase5Base(unittest.IsolatedAsyncioTestCase):
     @classmethod
@@ -148,7 +141,6 @@ class Phase5Base(unittest.IsolatedAsyncioTestCase):
                         limits=SwarmLimits(max_task_retries=0))
         defaults.update(kw)
         return SwarmCoordinator(**defaults)
-
 
 # =========================================================================== #
 # §5 — Facts vs hypotheses (distinct; validation lifecycle)                    #
@@ -197,7 +189,6 @@ class TestFactsVsHypotheses(Phase5Base):
         self.assertIn(HypothesisStatus.REJECTED.value, statuses)
         self.assertFalse(ms.get_hypotheses(open_only=True))
 
-
 # =========================================================================== #
 # §6 — Evidence reliability / confidence                                       #
 # =========================================================================== #
@@ -224,7 +215,6 @@ class TestEvidenceReliability(Phase5Base):
         self.assertTrue(strong.is_strong)
         self.assertFalse(weak.is_strong)
         self.assertEqual(weak.reliability, Reliability.SPECULATIVE.value)
-
 
 # =========================================================================== #
 # §7 — Failed-approach memory (bounded, deduped)                               #
@@ -255,7 +245,6 @@ class TestFailedApproachMemory(Phase5Base):
             ms.record_failed_approach(action=f"a{i}", signature=f"sig::{i}", result="x")
         # Bounded well under an unbounded 400 (the cap is 150).
         self.assertLessEqual(len(ms.failed_approaches), 150)
-
 
 # =========================================================================== #
 # §8 — Duplicate action suppression via normalized signatures                  #
@@ -297,7 +286,6 @@ class TestDuplicateSuppression(Phase5Base):
         d2 = sup.reason(ms, use_memory=False, attempted_signatures=[first_sig])
         self.assertNotEqual(d2.selected and d2.selected.signature, first_sig)
 
-
 # =========================================================================== #
 # §9/§16/§11 — Candidate generation                                            #
 # =========================================================================== #
@@ -324,7 +312,6 @@ class TestCandidateGeneration(Phase5Base):
                       title="Apache 2.4.49", related_technology="Apache 2.4.49", source="command")
         cands = gen.generate(ms, recent_evidence=[ev], use_memory=False)
         self.assertTrue(any(c.source == "evidence" and "apache" in c.objective.lower() for c in cands))
-
 
 # =========================================================================== #
 # §10 — Deterministic candidate scoring                                        #
@@ -375,7 +362,6 @@ class TestScoring(Phase5Base):
         ranked = scorer.rank(cands, uncertainty=1.0)
         self.assertEqual(ranked[0].action_type, "service_fingerprint")  # info-seeking wins
 
-
 # =========================================================================== #
 # §11 — Information gain relative to current knowledge                         #
 # =========================================================================== #
@@ -405,7 +391,6 @@ class TestInformationGain(Phase5Base):
         top = ranked[0].action_type
         self.assertIn(top, ("service_fingerprint", "directory_enum", "http_inspect"))
 
-
 # =========================================================================== #
 # §12 — Exploration vs exploitation                                            #
 # =========================================================================== #
@@ -429,7 +414,6 @@ class TestExplorationExploitation(Phase5Base):
                                information_gain=InformationGain.HIGH.value, success_probability=0.6)
         ranked = scorer.rank([scan, exploit], uncertainty=0.2)      # low uncertainty → exploit
         self.assertEqual(ranked[0].action_type, "vuln_exploit")
-
 
 # =========================================================================== #
 # §14 — Failure classification & recovery hints                                #
@@ -459,7 +443,6 @@ class TestFailureClassification(Phase5Base):
         sup = Supervisor("m")
         self.assertEqual(sup.classify_failure(_R(status="TIMEOUT")), "timeout")   # unchanged
         self.assertEqual(sup.classify_failure_detailed(_R(status="TIMEOUT")), FailureClass.TIMEOUT)
-
 
 # =========================================================================== #
 # §18/§19 — Memory retrieval (bounded, advisory) & confidence                  #
@@ -493,7 +476,6 @@ class TestMemoryRetrieval(Phase5Base):
         lo = [c for c in gen_lo.generate(ms) if c.source == "memory"][0]
         self.assertGreater(hi.success_probability, lo.success_probability)
 
-
 # =========================================================================== #
 # §20/§21 — Playbook adaptation (not blind execution)                          #
 # =========================================================================== #
@@ -523,7 +505,6 @@ class TestPlaybookAdaptation(Phase5Base):
         ms = self._ms(category="forensics", target="/tmp/x.png")
         decision = sup.reason(ms, generator=gen, blocked_capabilities=["ocr"])
         self.assertFalse(any(c.capability == "ocr" for c in decision.ranked))
-
 
 # =========================================================================== #
 # §26 — No-progress detection                                                  #
@@ -558,7 +539,6 @@ class TestNoProgressDetection(Phase5Base):
         ledger.record(ms)
         self.assertEqual(ledger.stagnant_steps, 0)                 # reset
 
-
 # =========================================================================== #
 # §27 — Mission budget                                                         #
 # =========================================================================== #
@@ -587,7 +567,6 @@ class TestMissionBudget(Phase5Base):
         b2 = MissionBudget.from_dict(b.to_dict())
         self.assertEqual(b2.tool_executions, 4)
         self.assertEqual(b2.max_tool_executions, 10)
-
 
 # =========================================================================== #
 # §25 — Stop conditions                                                        #
@@ -627,7 +606,6 @@ class TestStopConditions(Phase5Base):
         cond, _ = evaluate_stop(self._ms(), has_open_work=True)
         self.assertEqual(cond, StopCondition.NONE)
 
-
 # =========================================================================== #
 # §24 — Supervisor central reasoning                                           #
 # =========================================================================== #
@@ -651,7 +629,6 @@ class TestSupervisorReasoning(Phase5Base):
         exploit = sup.reason(self._ms(target="http://t.ctf", vulnerabilities=["SQLi in /login"]),
                              use_memory=False)
         self.assertEqual(exploit.mode, "exploit")                  # strong evidence present
-
 
 # =========================================================================== #
 # §29–§33 — Reasoning regressions                                              #
@@ -772,7 +749,6 @@ class TestReasoningRegressions(Phase5Base):
         self.assertEqual(sum(1 for o in web_objs if "'/A'" in o), 1)  # A not repeated
         self.assertTrue(any(fa.result == "FAILED" for fa in coord.mission.get_failed_approaches()))
 
-
 # =========================================================================== #
 # Integration path + §32 memory-does-not-auto-execute + §37 observability      #
 # =========================================================================== #
@@ -867,7 +843,6 @@ class TestReasoningIntegration(Phase5Base):
         with _CaptureEvents() as cap:
             await coord.run()
         self.assertIn(swarm_events.REASONING_DECISION, cap.names())
-
 
 if __name__ == "__main__":
     unittest.main()

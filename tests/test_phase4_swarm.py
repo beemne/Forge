@@ -14,14 +14,14 @@ import os
 import asyncio
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import (
@@ -38,7 +38,6 @@ from backend.swarm import (
 )
 from backend.swarm import events as swarm_events
 from backend.swarm import dedup
-
 
 # --------------------------------------------------------------------------- #
 # Local test doubles (the spec's mock provider + mock tool executor)
@@ -66,7 +65,6 @@ class ScriptedProvider:
         return ProviderCompletion(content=content, provider_name=self.provider_name,
                                   model_name=self.model_name, prompt_tokens=5, completion_tokens=3)
 
-
 class ScriptedToolExecutor:
     def __init__(self, sequence=None, by_substring=None, default=None):
         self.sequence = list(sequence or [])
@@ -83,7 +81,6 @@ class ScriptedToolExecutor:
         if self.sequence:
             return self.sequence.pop(0)
         return self.default
-
 
 class ConcurrencyProbeExecutor:
     """Records the peak number of agents executing simultaneously."""
@@ -103,12 +100,10 @@ class ConcurrencyProbeExecutor:
             self.shared["cur"] -= 1
         return ExecResult(command=action.display(), status="SUCCESS", exit_code=0, stdout=self.stdout)
 
-
 def scripted_runtime(responses, *, by_substring=None, sequence=None, default=None, executor=None):
     ex = executor or ScriptedToolExecutor(by_substring=by_substring, sequence=sequence, default=default)
     return AgentRuntime(tool_executor=ex, provider_gateway=ScriptedProvider(responses),
                         learn_on_completion=False)
-
 
 def factory_from(makers):
     """makers: dict role_value -> callable()->AgentRuntime. '*' is the fallback."""
@@ -117,7 +112,6 @@ def factory_from(makers):
         rt = maker() if maker else scripted_runtime(["BUDGET_EXHAUSTED: noop"])
         return SpecialistAgent(role, runtime=rt)
     return factory
-
 
 class _CaptureEvents:
     """Context manager that captures all swarm WS broadcasts deterministically."""
@@ -138,7 +132,6 @@ class _CaptureEvents:
 
     def names(self):
         return [e for e, _ in self.events]
-
 
 class SwarmTestBase(unittest.IsolatedAsyncioTestCase):
     @classmethod
@@ -168,7 +161,6 @@ class SwarmTestBase(unittest.IsolatedAsyncioTestCase):
         return Task(mission_id=coord.mission_id, run_id=coord.mission.run_id,
                     challenge_id=coord.mission.challenge_id, role=role.value if isinstance(role, AgentRole) else role,
                     objective=objective, priority=priority, dependencies=list(deps or []))
-
 
 # =========================================================================== #
 # 1. Supervisor + roles + task creation                                       #
@@ -217,7 +209,6 @@ class TestSupervisorAndRoles(SwarmTestBase):
                       title="/admin", related_endpoint="http://target.ctf/admin")
         proposals = sup.react_to_evidence(ev, SharedMissionState(mission_id="m4"))
         self.assertTrue(any("/admin" in p.objective for p in proposals))
-
 
 # =========================================================================== #
 # 2. Task scheduler: dependencies, priority, parallelism, dedup               #
@@ -278,7 +269,6 @@ class TestScheduler(SwarmTestBase):
         sch.refresh_states()
         self.assertEqual(sch.get(b.id).status, TaskStatus.CANCELLED.value)
 
-
 # =========================================================================== #
 # 3. Evidence bus + shared mission state                                      #
 # =========================================================================== #
@@ -335,7 +325,6 @@ class TestEvidenceAndState(SwarmTestBase):
         self.assertGreaterEqual(loaded, 1)
         self.assertTrue(any(e.title == "/secret" for e in fresh.all()))
 
-
 # =========================================================================== #
 # 4. Failure classification + recovery decisions                              #
 # =========================================================================== #
@@ -370,7 +359,6 @@ class TestRecoveryPolicy(SwarmTestBase):
         # unrecoverable and no retries → abandon
         d3 = sup.decide_recovery(t, self._result(failure_category="execution"), max_retries=0)
         self.assertEqual(d3.action, "abandon")
-
 
 # =========================================================================== #
 # 5. SpecialistAgent isolation + AgentRuntime reuse (§2, §5, §14)             #
@@ -419,7 +407,6 @@ class TestSpecialistAgent(SwarmTestBase):
         # Seeded a bounded slice (capped at 20), NOT all 50 endpoints.
         self.assertLessEqual(len(sess.state.known_endpoints), 20)
         self.assertIn("nginx", sess.state.technologies)
-
 
 # =========================================================================== #
 # 6. Coordinator: end-to-end, flag global stop, evidence→task, limits         #
@@ -507,7 +494,6 @@ class TestCoordinator(SwarmTestBase):
         self.assertTrue(coord._add_task(t1, origin="plan"))
         self.assertFalse(coord._add_task(t2, origin="plan"))
 
-
 # =========================================================================== #
 # 7. Failure handling, retry, reassignment inside the coordinator             #
 # =========================================================================== #
@@ -555,7 +541,6 @@ class TestCoordinatorRecovery(SwarmTestBase):
         objectives = [t.objective.lower() for t in coord.scheduler.all()]
         self.assertIn(TaskStatus.REASSIGNED.value, statuses)      # original was reassigned
         self.assertTrue(any("alternative" in o for o in objectives))  # new task uses another method
-
 
 # =========================================================================== #
 # 8. Checkpoint / resume, trajectory, WS events, quota                        #
@@ -659,7 +644,6 @@ class TestObservabilityAndResume(SwarmTestBase):
                     "agents", "quota", "limits", "shared_state"):
             self.assertIn(key, snap)
 
-
 # =========================================================================== #
 # 9. Phase 1–3 regression guard                                               #
 # =========================================================================== #
@@ -675,7 +659,6 @@ class TestRegression(SwarmTestBase):
     def test_37_normalize_command_dedup(self):
         self.assertEqual(dedup.normalize_command("nmap  -sV   TARGET"),
                          dedup.normalize_command("nmap -sv target".upper().lower()))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

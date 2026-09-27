@@ -18,10 +18,10 @@ Mode coverage: the gate is mode-aware (``settings.FORGE_APPROVAL_MODE``).
   * "auto" runs PRIVILEGED/DANGEROUS commands unattended; only a command that
     literally needs ``sudo`` still stops, and it stops for the CREDENTIAL alone.
 
-Isolation (project rule #5): ``backend/config.py`` calls ``load_dotenv(override=True)``
-at import time, which clobbers an ``os.environ`` assignment made before it with the
-``.env`` production url. DATABASE_URL is therefore RE-ASSERTED after that import so
-this module really runs against ``test_forge.db``.
+Isolation (project rule #5): the DATABASE_URL pin is set above this module's first backend
+import. ``backend/config.py`` no longer writes to ``os.environ`` (real environment variables
+win over ``.env``), and ``backend/database/guard.py`` refuses to build an engine for the
+production ``forge.db`` without an authorization only the server's startup hook makes.
 """
 
 import asyncio
@@ -31,11 +31,13 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-import backend.config  # noqa: E402  — runs load_dotenv(override=True)
-
-# Re-assert AFTER the dotenv load so the production url in .env cannot win.
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
 from backend.config import settings  # noqa: E402
@@ -55,7 +57,6 @@ PRIVILEGED_CMD = "sqlmap -u http://127.0.0.1:8000 --dump"
 # auto-resolved itself. The gate imposes no timeout of its own in either mode.
 PENDING_PROBE_SECONDS = 1.0
 
-
 def _make_llm_response(content: str):
     resp = MagicMock()
     resp.is_refusal = False
@@ -64,16 +65,13 @@ def _make_llm_response(content: str):
     resp.model = "test-model"
     return resp
 
-
 def _manual_mode():
     """Pin the gate to its default mode so a stray FORGE_APPROVAL_MODE=auto in the
     environment can never turn a fail-closed assertion into a false pass."""
     return patch.object(settings, "FORGE_APPROVAL_MODE", "manual")
 
-
 def _auto_mode():
     return patch.object(settings, "FORGE_APPROVAL_MODE", "auto")
-
 
 async def _resolve_pending_via_api(decision: str, sudo_password=None,
                                    timeout_s: float = 20.0) -> bool:
@@ -90,10 +88,8 @@ async def _resolve_pending_via_api(decision: str, sudo_password=None,
         await asyncio.sleep(0.05)
     return False
 
-
 async def _deny_pending_via_api(timeout_s: float = 20.0) -> bool:
     return await _resolve_pending_via_api("deny", timeout_s=timeout_s)
-
 
 class _GateTestBase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -106,7 +102,6 @@ class _GateTestBase(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         SHARED_PENDING_APPROVALS.clear()
-
 
 # =========================================================================== #
 # 1. The shared gate itself — fail-closed semantics, MANUAL mode (the default)
@@ -329,7 +324,6 @@ class TestRequireApprovalFailClosed(_GateTestBase):
         finally:
             db.close()
 
-
 # =========================================================================== #
 # 2. AUTO mode — run unattended; the ONLY stop is a missing sudo credential
 # =========================================================================== #
@@ -514,7 +508,6 @@ class TestRequireApprovalAutoMode(_GateTestBase):
             approved, _, _ = await asyncio.wait_for(task, timeout=10)
         self.assertFalse(approved)
 
-
 # =========================================================================== #
 # 3. Legacy ReAct loop (agents/orchestrator_loop.py) — all four call sites
 # =========================================================================== #
@@ -654,7 +647,6 @@ class TestLegacyLoopIsGated(_GateTestBase):
             finally:
                 db.close()
 
-
 def _tool_result(stdout="", stderr="", exit_code=0):
     res = MagicMock()
     res.stdout = stdout
@@ -666,7 +658,6 @@ def _tool_result(stdout="", stderr="", exit_code=0):
     res.tool_name = "raw_cmd"
     res.duration_ms = 1.0
     return res
-
 
 # =========================================================================== #
 # 4. agent_runtime.RealToolExecutor — COMMAND / PYTHON_SCRIPT / shell TOOL_CALL
@@ -781,7 +772,6 @@ class TestRealToolExecutorIsGated(_GateTestBase):
         tm.execute_raw_command.assert_awaited()
         self.assertEqual(res.status, "SUCCESS")
 
-
 # =========================================================================== #
 # 5. POST /tools/execute — an HTTP execution entry point reachable by an agent
 # =========================================================================== #
@@ -822,7 +812,6 @@ class TestToolsExecuteRouteIsGated(_GateTestBase):
 
         mock_tm.execute_capability.assert_awaited_once()
         self.assertEqual(result, {"status": "SUCCESS"})
-
 
 if __name__ == "__main__":
     unittest.main()

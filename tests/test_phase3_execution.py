@@ -18,15 +18,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # ── Allow running as `py -m unittest discover tests` from the project root ──
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -35,7 +34,6 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 def _run(coro):
     """Run a coroutine synchronously in tests (Python 3.10+ compatible)."""
     return asyncio.run(coro)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. ExecutionRequest / ExecutionResult models
@@ -85,7 +83,6 @@ class TestExecutionModels(unittest.TestCase):
         self.assertEqual(er.tool_name, "nmap")
         self.assertEqual(er.status, STATUS_FAILED)
         self.assertFalse(er.succeeded)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. WordlistResolver
@@ -150,7 +147,6 @@ class TestWordlistResolver(unittest.TestCase):
         self.assertEqual(p1, p2)
         self.assertEqual(mtime1, mtime2)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. ArtifactStore
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,7 +204,6 @@ class TestArtifactStore(unittest.TestCase):
         result = sha256_file("/does/not/exist.bin")
         self.assertIsNone(result)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. ProcessManager
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,7 +243,6 @@ class TestProcessManager(unittest.TestCase):
         pm = ProcessManager()
         _run(pm.run("echo done", timeout_seconds=5))
         self.assertEqual(pm.active_count(), 0)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. LocalBackend — tool availability
@@ -317,7 +311,6 @@ class TestLocalBackend(unittest.TestCase):
         from backend.execution.backends.local import LocalBackend
         self.assertEqual(LocalBackend.kind, "local")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. _resolve_python
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,7 +340,6 @@ class TestResolvePython(unittest.TestCase):
                 from backend.execution.backends.local import _resolve_python
                 result = _resolve_python()
         self.assertEqual(result, "python3")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. ExecutionService
@@ -402,7 +394,6 @@ class TestExecutionService(unittest.TestCase):
         _run(svc.execute(req, backend_kind="capture"))
         self.assertEqual(captured["session_id"], "sess_xyz")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. ToolManager backward compatibility
 # ─────────────────────────────────────────────────────────────────────────────
@@ -449,7 +440,6 @@ class TestToolManagerBackwardCompat(unittest.TestCase):
         self.assertIsInstance(result, ToolExecutionResult)
         self.assertEqual(result.status, "MISSING_TOOL")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. ToolRegistry — no hardcoded Linux paths
 # ─────────────────────────────────────────────────────────────────────────────
@@ -468,7 +458,6 @@ class TestToolRegistryNoPaths(unittest.TestCase):
         for name, tool in tool_registry.tools.items():
             self.assertNotIn("/usr/share", tool.args_template,
                              f"{name}.args_template contains hardcoded /usr/share path")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 10. Workspace isolation (unchanged, verifying regression)
@@ -491,7 +480,6 @@ class TestWorkspaceSafetyRegression(unittest.TestCase):
         self.assertTrue(result.startswith(CTF_WORKSPACE_ROOT),
                         f"Expected path inside CTF workspace, got: {result}")
         self.assertNotEqual(os.path.abspath("."), result)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. ExecutionResult → ExecResult → AgentRuntime compat
@@ -536,7 +524,6 @@ class TestExecResultIntegration(unittest.TestCase):
         self.assertEqual(er.tool_name, "nmap")
         self.assertTrue(er.succeeded)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 12. CapabilityReport — unchanged Phase 2 behaviour
 # ─────────────────────────────────────────────────────────────────────────────
@@ -565,7 +552,6 @@ class TestCapabilityReportRegression(unittest.TestCase):
         self.assertLess(score, 1.0)
         self.assertGreater(score, 0.0)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 13. Execution-layer status endpoint + operator-terminal delegation (Phase 3)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -577,7 +563,6 @@ def _multipart_available() -> bool:
     to the FastAPI surface."""
     import importlib.util
     return importlib.util.find_spec("multipart") is not None
-
 
 class TestExecutionStatusEndpoint(unittest.TestCase):
     """GET /execution/status (criterion #8) and the operator terminal delegating
@@ -638,7 +623,6 @@ class TestExecutionStatusEndpoint(unittest.TestCase):
         self.assertEqual(payload["event"], "LOG_OUTPUT")
         self.assertEqual(payload["output"], "root\n")
         self.assertEqual(payload["exit_code"], 0)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 

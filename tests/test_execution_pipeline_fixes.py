@@ -22,14 +22,14 @@ import os
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import AgentSessionModel, TrajectoryEventModel
@@ -45,7 +45,6 @@ from backend.agent_runtime.runtime import (
 )
 from backend.agent_runtime.decision import ProviderCompletion
 from backend.tools.manager import classify_tool_execution, LOCAL_EXEC_CATEGORIES
-
 
 # --------------------------------------------------------------------------- #
 # Local test doubles (scripted provider + scripted executor)
@@ -68,7 +67,6 @@ class ScriptedProvider:
         return ProviderCompletion(content=content, provider_name="stub", model_name="stub-m",
                                   prompt_tokens=10, completion_tokens=5)
 
-
 class ScriptedToolExecutor:
     def __init__(self, sequence=None, default=None):
         self.sequence = list(sequence or [])
@@ -79,11 +77,9 @@ class ScriptedToolExecutor:
         self.executed.append(action.display())
         return self.sequence.pop(0) if self.sequence else self.default
 
-
 def _py(script: str) -> str:
     """Wrap a script body in the model output contract (```python fenced block)."""
     return f"Here is my solver:\n```python\n{script}\n```"
-
 
 class PipelineFixBase(unittest.IsolatedAsyncioTestCase):
     @classmethod
@@ -105,7 +101,6 @@ class PipelineFixBase(unittest.IsolatedAsyncioTestCase):
         d.update(kw)
         return session_manager.create(**d)
 
-
 # =========================================================================== #
 # Task 2 — missing local artifact dependency (pre-execution consistency check)
 # =========================================================================== #
@@ -119,7 +114,6 @@ async def _auto_approve_gate(cmd, **kwargs):
     dedicated coverage in tests/test_privilege_gate.py.
     """
     return True, "approve", None
-
 
 class TestLocalArtifactDependency(PipelineFixBase):
 
@@ -179,7 +173,6 @@ class TestLocalArtifactDependency(PipelineFixBase):
             issue = analyze_python_script(f"open({p!r},'rb').read()\n", cwd=None)
             self.assertIsNone(issue, p)
 
-
 # =========================================================================== #
 # Task 3 — canonical target / relative-URL consistency
 # =========================================================================== #
@@ -209,7 +202,6 @@ class TestCanonicalTargetResolution(unittest.TestCase):
     def test_scheme_less_base_is_upgraded(self):
         self.assertEqual(resolve_target_url("/x", "127.0.0.1:8888"), "http://127.0.0.1:8888/x")
 
-
 class TestSchemelessUrlInScript(PipelineFixBase):
 
     async def test_scheme_less_request_is_pre_exec_failure_with_resolved_url(self):
@@ -232,7 +224,6 @@ class TestSchemelessUrlInScript(PipelineFixBase):
 
     def test_dict_get_is_not_mistaken_for_http_call(self):
         self.assertIsNone(analyze_python_script("d={'a':1}\nprint(d.get('a'))\n", cwd=None))
-
 
 # =========================================================================== #
 # Task 4 — execution failure becomes structured reasoning evidence
@@ -278,7 +269,6 @@ class TestFailureBecomesEvidence(PipelineFixBase):
         events = trajectory_store.get_events(sess.id)
         self.assertTrue(any(e.event_type in ("RECOVERY", "REPLAN") and "FILE_NOT_FOUND" in (e.result or "")
                             for e in events))
-
 
 # =========================================================================== #
 # Task 5 — speculative-retry thrashing recognised (one repetition system)
@@ -331,7 +321,6 @@ class TestRetryThrashing(PipelineFixBase):
         events = trajectory_store.get_events(sess.id)
         self.assertTrue(any(e.event_type == "REPLAN" for e in events))
 
-
 # =========================================================================== #
 # Task 6 — success claims are evidence-based, not prose-based
 # =========================================================================== #
@@ -380,7 +369,6 @@ class TestEvidenceBasedSuccess(PipelineFixBase):
                                         action_succeeded=True, authoritative=True)
         self.assertEqual(verified.status, AnswerStatus.VERIFIED)
 
-
 # =========================================================================== #
 # Task 7 — generated source code is never promoted as an answer
 # =========================================================================== #
@@ -416,7 +404,6 @@ class TestNoSourceCodeAsAnswer(unittest.TestCase):
                     "shadow_operator_42", "config.php", "31337", "http://target.ctf/robots.txt"):
             self.assertFalse(self.resolver.looks_like_source_code(val), val)
 
-
 # =========================================================================== #
 # Task 8 — generated-Python quality (conservative, reliable checks only)
 # =========================================================================== #
@@ -443,7 +430,6 @@ class TestGeneratedPythonQuality(PipelineFixBase):
     def test_bytes_str_concat_is_left_to_execution_feedback(self):
         # Not reliably detectable statically → deliberately NOT pre-blocked (per Task 8).
         self.assertIsNone(analyze_python_script("v = b'a' + 'b'\n", cwd=None))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

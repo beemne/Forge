@@ -8,6 +8,7 @@ from datetime import datetime
 # Ensure project root in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from backend.database.guard import authorize_production_database
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import (
     ChallengeModel, TargetProfileModel, RunModel, CheckpointModel, EvidenceModel,
@@ -76,6 +77,10 @@ async def run_competition_simulation(engine_type=None):
 
     # 2. Database Check
     try:
+        # This simulation drives the configured database directly instead of going
+        # through the server, so backend.main's startup hook never runs. Authorizing
+        # here is the deliberate, visible opt-in the guard requires.
+        authorize_production_database()
         init_db()
         db = SessionLocal()
         results["Database"] = "PASS"

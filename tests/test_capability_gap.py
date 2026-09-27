@@ -5,9 +5,13 @@ import os
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-import backend.config  # noqa: E402
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
 from backend.config import settings
@@ -23,7 +27,6 @@ from backend.agent_runtime.runtime import RealToolExecutor, AgentRuntime
 from backend.agent_runtime.session import AgentSession
 from backend.privilege.gate import require_approval, SHARED_PENDING_APPROVALS
 from backend.agents.swarm_orchestrator import swarm_orchestrator
-
 
 class TestCapabilityGapClassification(unittest.TestCase):
     def setUp(self):
@@ -69,7 +72,6 @@ class TestCapabilityGapClassification(unittest.TestCase):
         decision = sup.decide_recovery(task, res, max_retries=3)
         self.assertEqual(decision.action, "retry")
         self.assertIn("escalat", decision.reason.lower())
-
 
 class TestIntentPreservationAndApproval(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -158,7 +160,6 @@ class TestIntentPreservationAndApproval(unittest.IsolatedAsyncioTestCase):
             await resolver_task
             self.assertTrue(approved)
             self.assertEqual(decision, "approve")
-
 
 if __name__ == "__main__":
     unittest.main()

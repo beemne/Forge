@@ -4,14 +4,14 @@ import sys
 import asyncio
 import tempfile
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -50,8 +50,13 @@ class TestCLIProviders(unittest.TestCase):
         prov = AgentRouterClaudeCodeProvider()
         orig_key = settings.AGENTROUTER_API_KEY
         orig_opus5 = settings.AGENTROUTER_CLAUDE_OPUS_5_KEY
-        orig_env_key = os.environ.get("AGENTROUTER_API_KEY")
-        orig_env_opus5 = os.environ.get("AGENTROUTER_CLAUDE_OPUS_5_KEY")
+        # Sentinels, not truthiness: now that backend/config.py no longer calls
+        # load_dotenv(override=True), these variables are absent unless the operator
+        # exported them -- so "restore only if truthy" would leave them deleted for the
+        # rest of the process. Restore the exact prior state instead.
+        missing = object()
+        orig_env_key = os.environ.get("AGENTROUTER_API_KEY", missing)
+        orig_env_opus5 = os.environ.get("AGENTROUTER_CLAUDE_OPUS_5_KEY", missing)
         try:
             settings.AGENTROUTER_API_KEY = ""
             settings.AGENTROUTER_CLAUDE_OPUS_5_KEY = ""
@@ -65,10 +70,14 @@ class TestCLIProviders(unittest.TestCase):
         finally:
             settings.AGENTROUTER_API_KEY = orig_key
             settings.AGENTROUTER_CLAUDE_OPUS_5_KEY = orig_opus5
-            if orig_env_key:
-                os.environ["AGENTROUTER_API_KEY"] = orig_env_key
-            if orig_env_opus5:
-                os.environ["AGENTROUTER_CLAUDE_OPUS_5_KEY"] = orig_env_opus5
+            for name, value in (
+                ("AGENTROUTER_API_KEY", orig_env_key),
+                ("AGENTROUTER_CLAUDE_OPUS_5_KEY", orig_env_opus5),
+            ):
+                if value is missing:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
     def test_5_correct_model_key_mapping_resolution(self):
         prov = AgentRouterClaudeCodeProvider()

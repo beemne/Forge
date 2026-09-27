@@ -27,14 +27,14 @@ from unittest.mock import AsyncMock, patch
 # ── Allow running as `py -m unittest discover tests` from the project root ──
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.tools import manager as manager_module
 from backend.tools.manager import ToolManager, format_tool_args
@@ -42,13 +42,11 @@ from backend.tools.registry import tool_registry
 
 MALICIOUS_TARGET = "10.0.0.1; rm -rf /tmp/test_marker"
 
-
 class _AllInstalled(dict):
     """Environment stub: reports every registered tool binary as installed."""
 
     def get(self, key, default=None):
         return {"installed": True}
-
 
 class _FakeExecResult:
     stdout = ""
@@ -56,10 +54,8 @@ class _FakeExecResult:
     exit_code = 0
     status = "SUCCESS"
 
-
 def _run(coro):
     return asyncio.run(coro)
-
 
 class TestFormatToolArgsUnit(unittest.TestCase):
     """Direct unit tests of the interpolation helper (the smallest testable unit)."""
@@ -127,7 +123,6 @@ class TestFormatToolArgsUnit(unittest.TestCase):
                 self.assertNotIn(";", argv, f"{name}: separator survived as its own token: {argv}")
                 self.assertNotIn("rm", argv, f"{name}: payload split into separate tokens: {argv}")
         self.assertGreater(checked, 0, "no {target} templates found to check")
-
 
 class TestExecuteCapabilityQuoting(unittest.TestCase):
     """End-to-end through execute_capability: assert on the shell-bound command."""
@@ -208,7 +203,6 @@ class TestExecuteCapabilityQuoting(unittest.TestCase):
             "ffuf -u http://10.0.0.1/FUZZ -w /usr/share/wordlists/dirb/common.txt"
             " -mc 200,301,302,401,403 -s",
         )
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,10 +16,10 @@ Three properties, all of which the /tools "Operator Approvals" panel depends on:
   3. NO SECRETS — the read-only pending listing must never expose the transient sudo
      password or the non-serializable asyncio.Event held on a registry entry.
 
-Isolation (project rule #5): ``backend/config.py`` calls ``load_dotenv(override=True)`` at
-import time, which clobbers an ``os.environ`` assignment made before it with the ``.env``
-production url. DATABASE_URL is therefore RE-ASSERTED after that import so this module
-really runs against ``test_forge.db``.
+Isolation (project rule #5): the DATABASE_URL pin is set above this module's first backend
+import. ``backend/config.py`` no longer writes to ``os.environ`` (real environment variables
+win over ``.env``), and ``backend/database/guard.py`` refuses to build an engine for the
+production ``forge.db`` without an authorization only the server's startup hook makes.
 """
 
 import asyncio
@@ -28,11 +28,13 @@ import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-import backend.config  # noqa: E402  — runs load_dotenv(override=True)
-
-# Re-assert AFTER the dotenv load so the production url in .env cannot win.
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
 from backend.config import settings  # noqa: E402
@@ -60,16 +62,13 @@ TOOL_INSTALL_CONTEXT = {
     "reason": "ffuf is not installed",
 }
 
-
 def _manual_mode():
     """Pin the gate to its default mode so a stray FORGE_APPROVAL_MODE=auto in the
     environment cannot silently turn this module's manual-mode assertions into no-ops."""
     return patch.object(settings, "FORGE_APPROVAL_MODE", "manual")
 
-
 def _auto_mode():
     return patch.object(settings, "FORGE_APPROVAL_MODE", "auto")
-
 
 def _recording_broadcast():
     """Collect broadcast payloads; returns (async_fn, payloads)."""
@@ -80,10 +79,8 @@ def _recording_broadcast():
 
     return _broadcast, payloads
 
-
 def _events(payloads, event_name):
     return [p for p in payloads if p.get("event") == event_name]
-
 
 async def _answer_first_pending(decision: str, timeout_s: float = 20.0) -> bool:
     """Poll the shared registry until the gate registers a request, then answer it
@@ -95,7 +92,6 @@ async def _answer_first_pending(decision: str, timeout_s: float = 20.0) -> bool:
             return bool(resp.get("accepted"))
         await asyncio.sleep(0.05)
     return False
-
 
 class _SurfaceTestBase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -110,7 +106,6 @@ class _SurfaceTestBase(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         SHARED_PENDING_APPROVALS.clear()
         swarm_orchestrator.active_swarms.clear()
-
 
 # =========================================================================== #
 # 1. Context — the operator is told WHY a request exists
@@ -211,7 +206,6 @@ class TestApprovalContext(_SurfaceTestBase):
             await asyncio.wait_for(task, timeout=10)
 
         self.assertEqual(_events(payloads, "APPROVAL_REQUIRED")[0]["context"], {})
-
 
 # =========================================================================== #
 # 2. Resolution — every decision is announced, including the unattended one
@@ -330,7 +324,6 @@ class TestResolutionEvents(_SurfaceTestBase):
         self.assertTrue(approved, "a failed resolved-announcement must not undo the auto-approval")
         self.assertEqual(decision, "auto-approved")
 
-
 # =========================================================================== #
 # 3. The pending listing must not leak secrets or crash on non-JSON values
 # =========================================================================== #
@@ -423,7 +416,6 @@ class TestPendingListing(_SurfaceTestBase):
             self.assertTrue(await _answer_first_pending("deny"))
             await asyncio.wait_for(task, timeout=10)
 
-
 # =========================================================================== #
 # 4. Capability-gap retries are labelled, not re-asked anonymously
 # =========================================================================== #
@@ -483,7 +475,6 @@ class TestCapabilityGapRetryTagging(_SurfaceTestBase):
         context = _capability_gap_retry_context(board, "sqlmap", "PRIVILEGED")
         self.assertEqual(context["target"], "new")
         self.assertEqual(context["denied_reason"], "second")
-
 
 if __name__ == "__main__":
     unittest.main()

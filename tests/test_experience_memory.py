@@ -12,24 +12,22 @@ import shutil
 import tempfile
 import unittest
 
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
 
 from backend.database.session import init_db, SessionLocal
 from backend.database.models import ExperienceModel, ExperienceAttemptModel, MemoryUsageModel
-
 
 CAPTURED_FLAG = "picoCTF{ss7i_tem9late_pwn}"
 TARGET_URL = "http://blog.challenge.ctf:8080"
 LEAKED_SECRET = "sup3rSecretAdminPass"
 TARGET_IP = "10.10.14.99"
-
 
 def _solved_board(**overrides):
     """A lightweight stand-in for a completed SwarmBlackboard (duck-typed)."""
@@ -60,7 +58,6 @@ def _solved_board(**overrides):
     for k, v in overrides.items():
         setattr(board, k, v)
     return board
-
 
 class MemoryTestBase(unittest.TestCase):
     @classmethod
@@ -103,7 +100,6 @@ class MemoryTestBase(unittest.TestCase):
         finally:
             db.close()
 
-
 class TestExtractionAndGeneralization(MemoryTestBase):
     def test_generalization_strips_all_challenge_specific_secrets(self):
         """§4: a solved challenge must NEVER be stored with its concrete secrets."""
@@ -145,7 +141,6 @@ class TestExtractionAndGeneralization(MemoryTestBase):
         rec = self.extractor.extract_from_board(board, flag="", outcome="failure")
         self.assertEqual(rec.outcome, "failure")
         self.assertLess(rec.confidence, 0.6)
-
 
 class TestStoreRetrieveRank(MemoryTestBase):
     def _store(self, board=None, flag=CAPTURED_FLAG, outcome="success"):
@@ -205,7 +200,6 @@ class TestStoreRetrieveRank(MemoryTestBase):
         self.assertEqual(stats["total_memories"], 0)
         self.assertEqual(self.mem.search(query="anything", evidence="anything"), [])
 
-
 class TestFeedbackProvenancePromotion(MemoryTestBase):
     def _store(self, outcome="success"):
         rec = self.extractor.extract_from_board(_solved_board(), flag=CAPTURED_FLAG, outcome=outcome)
@@ -254,7 +248,6 @@ class TestFeedbackProvenancePromotion(MemoryTestBase):
         import json
         self.assertNotIn(CAPTURED_FLAG, json.dumps(promoted.model_dump()))
 
-
 class TestAgentContextInjection(MemoryTestBase):
     def test_memory_appears_in_agent_prompt(self):
         """§8: retrieved memory is injected into the agent prompt as reference."""
@@ -273,8 +266,6 @@ class TestAgentContextInjection(MemoryTestBase):
         self.assertIn("Template Injection", user)
         # Injecting memory must not leak the source challenge's flag/target.
         self.assertNotIn(CAPTURED_FLAG, user)
-
-
 
 class TestBug5Classification(MemoryTestBase):
     def test_rev_challenge_classified_as_reverse_engineering(self):
@@ -602,8 +593,5 @@ class TestBug5Classification(MemoryTestBase):
             f"SQLi run classified as {clf['technique']!r} — regression in new scoring")
         self.assertIn("sqli", clf["tags"])
 
-
 if __name__ == "__main__":
     unittest.main()
-
-

@@ -4,17 +4,19 @@ import unittest
 sys.path.insert(0, ".")
 
 from fastapi.testclient import TestClient
+
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
+os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
+
 from backend.main import app
 from backend.database.session import get_db, get_engine, SessionLocal, init_db
 from backend.database.models import Base, ChallengeModel, TargetProfileModel, ProviderUsageModel, TrajectoryEventModel, RunModel, FindingModel, EvidenceModel, CheckpointModel, AgentStateModel, ReportModel
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-
-
 
 class TestDataWiringEndpoints(unittest.TestCase):
     """Test suite verifying full data wiring endpoints for candidates, artifacts, decisions, targets, and providers."""
@@ -23,7 +25,6 @@ class TestDataWiringEndpoints(unittest.TestCase):
     def setUpClass(cls):
         init_db()
         cls.client = TestClient(app)
-
 
     def setUp(self):
         self.db = SessionLocal()
@@ -81,7 +82,6 @@ class TestDataWiringEndpoints(unittest.TestCase):
         from backend.agents.swarm_orchestrator import swarm_orchestrator
         swarm_orchestrator.active_swarms["ch-test-wiring-1"] = board
 
-
         mock_tool_res = AsyncMock()
         mock_tool_res.exit_code = 0
         mock_tool_res.stdout = "Found 200 OK on /admin"
@@ -124,7 +124,6 @@ class TestDataWiringEndpoints(unittest.TestCase):
         self.assertTrue(len(decs) >= 1)
         self.assertEqual(decs[0]["agent"], "agent_1")
         self.assertIn("ffuf", decs[0]["goal"] + decs[0]["selectedTool"] + decs[0]["result"])
-
 
     def test_targets_endpoint_returns_real_fields(self):
         """Verify GET /targets returns expected_services, technologies, address_history, discovery_method."""
@@ -177,7 +176,6 @@ class TestDataWiringEndpoints(unittest.TestCase):
         self.assertIn("last_error", groq_prov)
         self.assertIn("fallback_priority", groq_prov)
         self.assertEqual(groq_prov["requests"], 1)
-
 
 if __name__ == "__main__":
     unittest.main()

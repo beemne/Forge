@@ -14,12 +14,13 @@ import unittest
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
-# backend.config calls load_dotenv(dotenv_path=".env", override=True) at import,
-# which would reset DATABASE_URL to the production value from .env. Import it here so
-# that override happens now -- once -- then pin DATABASE_URL at the isolated test
-# database. Never point this at forge.db: other modules' tearDowns delete real rows.
-import backend.config  # noqa: F401
+# Pinned above the first backend import on purpose. Importing backend used to repoint
+# DATABASE_URL at production forge.db (load_dotenv override=True) at import time, so
+# the pin had to be re-applied afterwards. It cannot any more: pydantic-settings gives
+# real environment variables precedence over .env, and backend/database/guard.py
+# refuses to build an engine for forge.db without an authorization that only the
+# server's startup hook makes. Never point this at forge.db: other modules' tearDowns
+# delete real rows.
 os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -38,7 +39,6 @@ from backend.swarm.candidates import CandidateGenerator
 from backend.swarm.reasoning import CandidateAction
 from backend.swarm.scoring import ActionScorer
 from backend.swarm.supervisor import Supervisor
-
 
 # ---------------------------------------------------------------------------
 # Lightweight mission-state stub (avoids database dependencies)
@@ -64,7 +64,6 @@ class _Mission:
     attempted_signatures: List[str] = field(default_factory=list)
     flag_candidates: List[str] = field(default_factory=list)
 
-
 @dataclass
 class _Evidence:
     """Minimal evidence stub."""
@@ -75,7 +74,6 @@ class _Evidence:
     related_endpoint: str = ""
     related_vulnerability: str = ""
     related_technology: str = ""
-
 
 # ---------------------------------------------------------------------------
 # 1. Successful evidence becomes actionable state
@@ -172,7 +170,6 @@ class TestSuccessfulEvidenceBecomesActionableState(unittest.TestCase):
         inp5 = "The path is unrelated, nothing uploaded here"
         self.assertEqual(_FILE_UPLOADED_RE.findall(inp5), [])
 
-
 # ---------------------------------------------------------------------------
 # 2. Successful evidence produces a next action
 # ---------------------------------------------------------------------------
@@ -221,7 +218,6 @@ class TestSuccessfulEvidenceProducesNextAction(unittest.TestCase):
         self.assertEqual(decision.selected.target, "uploads/shell.php")
         self.assertIn("uploads/shell.php", decision.selected.objective)
 
-
 # ---------------------------------------------------------------------------
 # 3. Failed strategies remain exhausted
 # ---------------------------------------------------------------------------
@@ -266,7 +262,6 @@ class TestFailedStrategiesRemainExhausted(unittest.TestCase):
                             "Supervisor must not pick exhausted strategy")
         self.assertIn(decision.selected.action_type, ["artifact_analysis", "web_exploit", "service_fingerprint"])
 
-
 # ---------------------------------------------------------------------------
 # 4. New evidence must NOT globally reset exhaustion
 # ---------------------------------------------------------------------------
@@ -304,7 +299,6 @@ class TestNewEvidenceDoesNotResetExhaustion(unittest.TestCase):
         self.assertEqual(ranked[0].action_type, "web_exploit")
         self.assertIn("shell.php", ranked[0].target)
 
-
 # ---------------------------------------------------------------------------
 # 5. Suggestion ACCEPT path
 # ---------------------------------------------------------------------------
@@ -337,7 +331,6 @@ class TestSuggestionAcceptPath(unittest.TestCase):
         )
         self.assertEqual(ev.decision, SuggestionDecision.ACCEPT)
         self.assertIn("guidance", ev.reason.lower())
-
 
 # ---------------------------------------------------------------------------
 # 6. Suggestion REJECT path
@@ -387,7 +380,6 @@ class TestSuggestionRejectPath(unittest.TestCase):
         self.assertEqual(ev.decision, SuggestionDecision.REJECT)
         self.assertEqual(ev.suggested_action, "")
 
-
 # ---------------------------------------------------------------------------
 # 7. Suggestion MODIFY path
 # ---------------------------------------------------------------------------
@@ -426,7 +418,6 @@ class TestSuggestionModifyPath(unittest.TestCase):
         self.assertIn("NEW TARGET ONLY", ev.suggested_action.upper())
         self.assertIn("/api/v2/items", ev.suggested_action)
 
-
 # ---------------------------------------------------------------------------
 # 8. Suggestion cannot bypass execution controls
 # ---------------------------------------------------------------------------
@@ -453,7 +444,6 @@ class TestSuggestionCannotBypassExecutionControls(unittest.TestCase):
         directive = evals["agent_1"].suggested_action
         self.assertIsInstance(directive, str)
         self.assertEqual(directive, "Use curl on /test")
-
 
 # ---------------------------------------------------------------------------
 # Live Flow Test
@@ -515,7 +505,6 @@ class TestLiveCheckpointFlow(unittest.TestCase):
         gen = CandidateGenerator()
         candidates = gen._from_state_gaps(ms)
         self.assertTrue(any("webshell.php" in c.target for c in candidates))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,7 @@ wheels/
 .installed.cfg
 *.egg
 venv/
+.venv/
 ENV/
 
 # Database & Storage

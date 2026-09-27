@@ -1,17 +1,27 @@
 import logging
 import os
-from dotenv import load_dotenv
-
-# Load .env file explicitly
-load_dotenv(dotenv_path=".env", override=True)
+from pathlib import Path
 
 logger = logging.getLogger("forge.config")
+
+# Anchored to the repository root rather than the working directory, so `settings`
+# and the database guard (backend/database/guard.py) always read the same file and
+# cannot disagree about which database is production.
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     class Settings(BaseSettings):
-        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-        
+        # pydantic-settings loads .env itself, and gives real process environment
+        # variables precedence over it -- which is the behavior FORGE wants.
+        #
+        # There is deliberately NO load_dotenv(override=True) call here. It used to
+        # rewrite os.environ at import time, discarding a DATABASE_URL that a test had
+        # already pinned to the isolated database: the suite then ran against
+        # production forge.db and test tearDowns deleted real rows. See
+        # backend/database/guard.py for the structural guard against that.
+        model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
+
         PROJECT_NAME: str = "FORGE Autonomous CTF Framework"
         VERSION: str = "1.0.0"
         ENVIRONMENT: str = "development"
@@ -117,6 +127,18 @@ try:
 except ImportError:
     class Settings:
         def __init__(self):
+            # pydantic-settings is unavailable, so this branch reads .env itself --
+            # otherwise the keys below would silently fall back to their defaults.
+            # override=False is essential: real process environment variables must
+            # win over .env, exactly as pydantic-settings orders them. override=True
+            # is what discarded a test's pinned DATABASE_URL and pointed the suite at
+            # production forge.db.
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(dotenv_path=ENV_FILE, override=False)
+            except ImportError:
+                pass
+
             self.PROJECT_NAME = os.getenv("PROJECT_NAME", "FORGE Autonomous CTF Framework")
             self.VERSION = os.getenv("VERSION", "1.0.0")
             self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
