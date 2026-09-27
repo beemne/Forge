@@ -3,7 +3,7 @@
 > ⚠️ **Status: Under Active Development** — Features, agent capabilities, and security workflows are actively being developed and refined.
 
 > **Next-Generation Autonomous CTF Command Center & Intelligence Orchestrator**  
-> *Engineered for Real Use in Cybersecurity Competitions (Ethiopian CyberShield 2026 Red Team)*
+> *Engineered for Real Use in Cybersecurity Competitions *
 
 ---
 
