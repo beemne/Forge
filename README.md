@@ -216,4 +216,4 @@ All 29/29 automated backend tests pass cleanly.
 
 ## 📄 License & Legal Notice
 
-FORGE is intended strictly for authorized CTF competitions (e.g., Ethiopian CyberShield 2026 Red Team) and defensive security research. Ensure proper authorization before scanning or testing target networks.
+FORGE is intended strictly for authorized CTF competitions and defensive security research. Ensure proper authorization before scanning or testing target networks.
