@@ -259,12 +259,6 @@ def ingest_file(file_path: str, category: str = "web", title: Optional[str] = No
     return saved_path
 
 
-def parse_writeup(file_path: str, category: str = "web", title: Optional[str] = None) -> PlaybookSchema:
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        content = f.read()
-    return parse_writeup_content(content, category, title)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingest raw CTF writeups into FORGE Playbook Vault")
     parser.add_argument("file", help="Path to raw markdown/text writeup file or URL")

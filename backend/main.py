@@ -72,6 +72,27 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
     init_db()
     _mark_stale_runs_interrupted()
+    # Restore circuit-breaker state from the previous session (Workstream A2) so a
+    # provider/model that was quota-exhausted/denied stays broken across a restart
+    # instead of being hammered again immediately.
+    try:
+        from backend.providers.quota_manager import quota_manager
+        from backend.providers.breaker_store import purge_expired
+        purge_expired()
+        quota_manager.load_persisted_breakers()
+    except Exception as e:
+        logger.warning(f"[Startup] Circuit-breaker restore skipped: {e}")
+
+    # Provider/model availability discovery (Workstream B): probe live catalogs in the
+    # BACKGROUND so startup is never blocked, and a dead/unprovisioned model is dropped
+    # from routing automatically. Held on app.state so the task is not garbage-collected.
+    try:
+        import asyncio
+        from backend.providers.discovery import discovery_service
+        app.state.discovery_task = asyncio.create_task(discovery_service.discover_all())
+    except Exception as e:
+        logger.warning(f"[Startup] Provider discovery skipped: {e}")
+
     logger.info(f"{settings.PROJECT_NAME} initialized and ready.")
 
     yield

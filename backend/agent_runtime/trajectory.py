@@ -287,19 +287,6 @@ class TrajectorySearch:
                 break
         return results
 
-    def find_sessions(self, query: str, *, exclude_session: Optional[str] = None,
-                      top_k: int = 5) -> List[str]:
-        """Distinct prior session ids whose trajectory matches the query (recall across sessions)."""
-        hits = self.search(query, exclude_session=exclude_session, top_k=top_k * 5)
-        seen: List[str] = []
-        for h in hits:
-            sid = h.get("session_id")
-            if sid and sid not in seen:
-                seen.append(sid)
-            if len(seen) >= top_k:
-                break
-        return seen
-
 
 # Module singletons (mirror the experience_memory pattern). Indexed from the DB
 # named by DATABASE_URL at import time; tests set that env var first.

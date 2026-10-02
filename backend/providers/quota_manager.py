@@ -57,6 +57,13 @@ class AgentRouterQuotaManager:
     # session cooldown so FORGE stops wasting a call on it every loop.
     RATE_LIMIT_TRIP_THRESHOLD = 2
 
+    # Circuit-breaker cooldown tiers (seconds), proportional to how likely the failure is
+    # to recover (Workstream A1). Universal across every provider/model/capability.
+    COOLDOWN_RATE_LIMIT = 300      # 429: transient, recovers quickly
+    COOLDOWN_QUOTA = 1800          # 402 / insufficient quota: won't recover soon
+    COOLDOWN_AUTH = 3600           # 401 / 403: bad key / permission — config issue
+    COOLDOWN_GONE = 86400          # 404 / 410: model unprovisioned or removed — until re-probe
+
     def __init__(self):
         # Tracks when each model family was last observed as exhausted
         self._exhaustion_timestamps: Dict[str, float] = {}
@@ -156,34 +163,100 @@ class AgentRouterQuotaManager:
         )
         return False
 
-    def blacklist_for_session(self, identifier: str, reason: str = "Quota/RateLimit Exceeded"):
-        """Temporarily blacklists a provider/model with a time-limited cooldown.
-        - 429/rate-limit errors: 5-minute cooldown (transient, will recover)
-        - 402/quota errors: 30-minute cooldown (likely won't recover soon, but not permanent)
-        - 401/auth errors: 60-minute cooldown (likely config issue)
+    def _classify_cooldown(self, reason: str) -> Tuple[int, str]:
+        """Map a failure reason to (cooldown_seconds, error_type). Order matters: the most
+        specific / least-recoverable classes are checked first."""
+        rl = reason.lower()
+        if "404" in reason or "410" in reason or "not found" in rl or "gone" in rl or "unprovisioned" in rl:
+            return self.COOLDOWN_GONE, "model-gone"
+        if "402" in reason or "quota" in rl or "budget" in rl or "insufficient" in rl or "resource_exhausted" in rl:
+            return self.COOLDOWN_QUOTA, "quota"
+        if "401" in reason or "403" in reason or "unauthorized" in rl or "forbidden" in rl or "permission" in rl:
+            return self.COOLDOWN_AUTH, "auth"
+        if "429" in reason or "rate" in rl:
+            return self.COOLDOWN_RATE_LIMIT, "rate-limit"
+        return self.COOLDOWN_RATE_LIMIT, "unknown"
+
+    def blacklist_for_session(self, identifier: str, reason: str = "Quota/RateLimit Exceeded", *, persist: bool = True):
+        """Temporarily blacklist a provider / model / (provider::model::capability) key with
+        a time-limited cooldown proportional to the failure class (see COOLDOWN_* tiers).
+        Universal across every provider — not limited to AgentRouter batch models (A1).
         """
         key = identifier.lower().strip()
-        reason_lower = reason.lower()
-        
-        # Determine cooldown duration based on error type
-        if "429" in reason or "rate" in reason_lower:
-            cooldown_seconds = 300  # 5 minutes for rate limits
-            error_type = "rate-limit"
-        elif "402" in reason or "quota" in reason_lower or "budget" in reason_lower:
-            cooldown_seconds = 1800  # 30 minutes for quota exhaustion
-            error_type = "quota"
-        elif "401" in reason or "unauthorized" in reason_lower:
-            cooldown_seconds = 3600  # 60 minutes for auth errors
-            error_type = "auth"
-        else:
-            cooldown_seconds = 300  # 5 minutes default
-            error_type = "unknown"
-        
+        cooldown_seconds, error_type = self._classify_cooldown(reason)
         expiry = time.time() + cooldown_seconds
         self._session_blacklisted[key] = (expiry, reason)
         logger.warning(
-            f"[CircuitBreaker] ⛔ Provider '{identifier}' blacklisted for {cooldown_seconds}s ({error_type}). Reason: {reason[:120]}"
+            f"[CircuitBreaker] ⛔ '{identifier}' blacklisted for {cooldown_seconds}s ({error_type}). Reason: {reason[:120]}"
         )
+        if persist:
+            self._persist_breaker(key, expiry, reason)
+        self._notify_breaker_tripped(identifier, error_type, cooldown_seconds, reason)
+
+    # ── Generalized (provider, model, capability) breaker (A1) ───────────────────── #
+
+    @staticmethod
+    def breaker_key(provider: str, model: str = "", capability: str = "") -> str:
+        """Composite key so a bad (model, capability) on one provider is skipped without
+        nuking that provider for other models/capabilities."""
+        parts = [p for p in ((provider or "").strip(), (model or "").strip(), (capability or "").strip()) if p]
+        return "::".join(parts).lower()
+
+    def trip_breaker(self, provider: str, model: str = "", capability: str = "", reason: str = "") -> None:
+        """Trip the breaker at the most specific (provider, model, capability) granularity."""
+        self.blacklist_for_session(self.breaker_key(provider, model, capability), reason or "failure")
+
+    def is_tripped(self, provider: str, model: str = "", capability: str = "") -> bool:
+        """True if the exact triple, OR the bare provider, is currently circuit-broken."""
+        if self.is_blacklisted_for_session(self.breaker_key(provider, model, capability)):
+            return True
+        return self.is_blacklisted_for_session((provider or "").lower().strip())
+
+    # ── Persistence (A2): breaker state survives a process restart ───────────────── #
+
+    def _persist_breaker(self, key: str, expiry: float, reason: str) -> None:
+        """Best-effort write of one breaker entry to the DB. Never raises."""
+        try:
+            from backend.providers.breaker_store import save_breaker
+            save_breaker(key, expiry, reason)
+        except Exception as e:
+            logger.debug(f"[CircuitBreaker] persist skip for '{key}': {e}")
+
+    def load_persisted_breakers(self) -> int:
+        """Load non-expired breaker entries from the DB into memory. Returns count loaded.
+        Called once at app startup (where the production DB is authorized). Never raises."""
+        loaded = 0
+        try:
+            from backend.providers.breaker_store import load_active_breakers
+            now = time.time()
+            for key, expiry, reason in load_active_breakers():
+                if expiry > now:
+                    self._session_blacklisted[key] = (expiry, reason)
+                    loaded += 1
+            if loaded:
+                logger.info(f"[CircuitBreaker] Restored {loaded} active breaker(s) from previous session.")
+        except Exception as e:
+            logger.debug(f"[CircuitBreaker] load skip: {e}")
+        return loaded
+
+    def _notify_breaker_tripped(self, identifier: str, error_type: str, cooldown_seconds: int, reason: str) -> None:
+        """Best-effort WebSocket surfacing of a breaker trip (A6). Never raises / blocks."""
+        try:
+            import asyncio
+            from backend.websocket.manager import ws_manager
+            payload = {
+                "type": "CIRCUIT_BREAKER_TRIPPED",
+                "data": {
+                    "provider": identifier, "error_type": error_type,
+                    "cooldown_seconds": cooldown_seconds, "reason": str(reason)[:160],
+                },
+            }
+            loop = asyncio.get_running_loop()
+            loop.create_task(ws_manager.broadcast(payload))
+        except RuntimeError:
+            pass  # no running loop (sync/test context) — skip live surfacing
+        except Exception:
+            pass
 
     def is_blacklisted_for_session(self, identifier: str) -> bool:
         """Returns True if model/provider is currently blacklisted (not expired)."""

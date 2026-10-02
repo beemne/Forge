@@ -131,34 +131,6 @@ class Generalizer:
         out = _B64_RE.sub("{B64}", out)
         return out
 
-    @classmethod
-    def contains_secret(
-        cls,
-        text: str,
-        *,
-        target_tokens: Optional[List[str]] = None,
-        flag: str = "",
-        secrets: Optional[List[str]] = None,
-    ) -> bool:
-        """True if any concrete secret still appears — used by tests/guards (§4, §21)."""
-        if not text:
-            return False
-        low = text.lower()
-        if flag and flag.lower() in low:
-            return True
-        for tok in (target_tokens or []):
-            tok = (tok or "").strip()
-            if tok and len(tok) >= 4 and tok.lower() in low:
-                return True
-        for s in (secrets or []):
-            if s and len(s) >= 4 and s.lower() in low:
-                return True
-        if _FLAG_RE.search(text) or _JWT_RE.search(text):
-            return True
-        if _URL_RE.search(text) or _IPV4_RE.search(text):
-            return True
-        return False
-
 
 # ---------------------------------------------------------------------------
 # Technique classification + blue-team indicators (deterministic heuristics)

@@ -137,6 +137,10 @@ class SwarmBlackboard:
                                                          "picoCTF{...}|FLAG{...}|flag{...}|HTB{...}|CTF{...}")
         self.max_iterations: int = getattr(settings, "AGENT_MAX_ITERATIONS", 40)
         self.max_minutes: int = getattr(settings, "AGENT_MAX_MINUTES", 30)
+        # Per-run token budget (A5): cumulative prompt+completion tokens across the run.
+        # 0 = unlimited. When exceeded the run winds down cleanly via stall_reason.
+        self.max_tokens: int = int(getattr(settings, "AGENT_MAX_TOKENS", 0) or 0)
+        self.tokens_used: int = 0
         self.attached_file_paths: List[str] = []
         self.artifact_classification = None            # ClassificationResult | None
         self.env_info: Dict[str, Any] = {}

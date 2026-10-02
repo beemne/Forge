@@ -348,6 +348,13 @@ class SharedMissionState:
         if sig:
             self.record_action_signature(sig)
         self._touch()
+        # Cross-mission record (A4): share this dead-end with the other engine / future
+        # missions of the same category. Best-effort, advisory, never raises.
+        try:
+            from backend.knowledge.failed_approaches import record_failed_approach as _xmission_record
+            _xmission_record(self.category, sig or action, reason or result or failure_class)
+        except Exception:
+            pass
         return True
 
     def has_failed_action(self, signature: str) -> bool:
@@ -361,9 +368,6 @@ class SharedMissionState:
         if signature and signature not in self.action_signatures:
             _bounded_append(self.action_signatures, signature, _MAX_ACTION_SIGNATURES)
             self._touch()
-
-    def has_attempted_action(self, signature: str) -> bool:
-        return bool(signature) and signature in self.action_signatures
 
     def set_candidate_actions(self, candidates: List[Any]) -> None:
         """Store the latest ranked candidate actions for observability (§37). Bounded."""

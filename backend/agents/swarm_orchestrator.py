@@ -118,6 +118,7 @@ class SwarmOrchestrator:
         flag_pattern: str = "",
         max_iterations: int = 0,
         max_minutes: int = 0,
+        max_tokens: int = 0,
         attached_file_paths: Optional[List[str]] = None,
         instance_expiry_ts: Optional[float] = None,
     ):
@@ -154,6 +155,8 @@ class SwarmOrchestrator:
             board.max_iterations = max_iterations
         if max_minutes:
             board.max_minutes = max_minutes
+        if max_tokens:
+            board.max_tokens = max_tokens
         board.attached_file_paths = list(attached_file_paths or [])
         board.instance_expiry_ts = instance_expiry_ts
 
@@ -483,6 +486,16 @@ class SwarmOrchestrator:
         """Full challenge context for one agent this turn (identical template for all;
         only history_context + injected_directive differ per agent)."""
         pivot = board.pivot_directive if board.pivot_directive != "__pending__" else ""
+        # Fold the shared cross-mission dead-end recall into memory_context (A4) so the
+        # default engine avoids rediscovering approaches that failed in prior missions.
+        memory_context = board.memory_context or ""
+        try:
+            from backend.knowledge.failed_approaches import recall_block
+            xmission = recall_block(board.category)
+            if xmission:
+                memory_context = (memory_context + "\n\n" + xmission).strip() if memory_context else xmission
+        except Exception:
+            pass
         return make_context_from_env(
             env_info=board.env_info or {},
             challenge_name=board.challenge_name,
@@ -499,7 +512,7 @@ class SwarmOrchestrator:
             artifact_classification=board.artifact_classification,
             history_context=board.build_history_context(agent_id),
             injected_directive=board.agent_directives.get(agent_id, ""),
-            memory_context=board.memory_context,
+            memory_context=memory_context,
             exhausted_strategies=list(board.exhausted_strategies),
             pivot_directive=pivot,
         )
@@ -582,6 +595,19 @@ class SwarmOrchestrator:
 
                 content = resp.content or ""
                 model_name = getattr(resp, "model_name", capability)
+
+                # Per-run token budget (A5): accumulate REAL usage from the response and wind
+                # the run down cleanly when the budget is exhausted — rather than looping until
+                # some unrelated limit trips. 0 = unlimited (default). Surfaced via stall_reason.
+                board.tokens_used += int(getattr(resp, "prompt_tokens", 0) or 0) + int(getattr(resp, "completion_tokens", 0) or 0)
+                if board.max_tokens and board.tokens_used >= board.max_tokens:
+                    reason = f"Token budget exhausted ({board.tokens_used}/{board.max_tokens} tokens) — winding run down."
+                    board.record_agent_step(agent_id, note=reason)
+                    _append_to_challenge_log(board.challenge_id, agent_id, reason)
+                    await board.update_worker_state(agent_id, status="DONE", current_task=reason)
+                    if not board.stall_reason:
+                        board.stall_reason = reason
+                    break
 
                 # ── Parse STRATEGY: tag (required from agent per system prompt Rule 7) ──
                 strategy_label = "unknown"
@@ -910,6 +936,13 @@ class SwarmOrchestrator:
                         if cmd_shape not in board.blocked_failure_sigs:
                             board.blocked_failure_sigs.add(cmd_shape)
                             board.record_agent_step(agent_id, note=f"[FAILURE REPEAT LIMIT] Command shape '{cmd_shape}' hit threshold (3); blocking repeated attempts.")
+                            # Cross-mission record (A4): share this dead-end with future
+                            # missions of the same category (advisory recall, not a hard ban).
+                            try:
+                                from backend.knowledge.failed_approaches import record_failed_approach
+                                record_failed_approach(board.category, cmd_shape, fail_cat or "EXEC_FAIL")
+                            except Exception:
+                                pass
 
                 # Local execution failures (Errno 2 / SyntaxError / permission / missing dep)
                 # never reached the target — a broken invocation, not a target response. Don't
@@ -1061,12 +1094,16 @@ class SwarmOrchestrator:
     # ── HITL checkpoint coordinator (hard pause & wait) ─────────────────────────
 
     def _make_summarizer(self):
-        """Async callable for the strictly-extractive Gemini narrative pass. Returns
-        None on any failure so the report still renders deterministically."""
+        """Async callable for the strictly-extractive narrative pass. Returns
+        None on any failure so the report still renders deterministically.
+
+        Routed through the general_reasoning chain (NOT Gemini): Gemini is reserved
+        for vision + final report authoring (Workstream C), and its safety filters
+        refuse often enough on red-team context to make it unreliable mid-run."""
         async def _summarize(prompt: str) -> Optional[str]:
             try:
                 resp = await model_router.route_request(
-                    prompt=prompt, capability="general_reasoning", target_model="gemini-3.6-flash")
+                    prompt=prompt, capability="general_reasoning")
                 if resp and not resp.is_refusal:
                     return resp.content
             except Exception:

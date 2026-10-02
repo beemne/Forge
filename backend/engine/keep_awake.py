@@ -59,12 +59,6 @@ class KeepAwakeManager:
             logger.debug(f"[KeepAwake] Hold decremented. Reason: {reason} (Holds: {self._active_holds})")
         return True
 
-    def force_reset(self):
-        """Emergency reset of all holds to prevent hanging sleep locks."""
-        self._active_holds = 0
-        self._apply_state(prevent_sleep=False)
-        logger.info("[KeepAwake] KeepAwake forcefully reset to default state.")
-
     def _apply_state(self, prevent_sleep: bool):
         if not self._is_windows or not self._kernel32:
             return

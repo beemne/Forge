@@ -599,3 +599,37 @@ class SchemaVersionModel(Base):
     id = Column(Integer, primary_key=True)
     version = Column(Integer, nullable=False)
     applied_at = Column(DateTime, default=utcnow)
+
+
+class FailedApproachModel(Base):
+    """Cross-mission record of approaches that repeatedly failed (Workstream A4).
+
+    Keyed by (category, signature) and SHARED by both swarm engines. This is the
+    cross-mission half of the failed-method guarantee: it is ADVISORY recall injected
+    into prompts ("these approaches dead-ended in prior missions"), while the HARD
+    per-mission block stays in each engine's own state (blocked_failure_sigs /
+    mission.failed_approaches). No ForeignKey: this memory must OUTLIVE the challenge
+    it came from, exactly like the experience/technique-stats layer."""
+    __tablename__ = "failed_approaches"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    category = Column(String, default="", index=True)
+    signature = Column(String, nullable=False)
+    fail_count = Column(Integer, default=1)
+    last_reason = Column(Text, default="")
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (Index("ix_failed_approach_cat_sig", "category", "signature", unique=True),)
+
+
+class ProviderBreakerModel(Base):
+    """Persisted circuit-breaker state (Workstream A2) so a tripped provider/model/
+    capability stays circuit-broken across a process restart instead of resetting to
+    'healthy' every launch. The key is QuotaManager.breaker_key(provider, model, capability);
+    expiry_ts is a POSIX timestamp. Rows past expiry are ignored on load and overwritten."""
+    __tablename__ = "provider_breakers"
+
+    key = Column(String, primary_key=True)
+    expiry_ts = Column(Float, nullable=False)
+    reason = Column(Text, default="")
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

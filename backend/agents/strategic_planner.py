@@ -482,41 +482,40 @@ class StrategicPlanner:
             f"}}"
         )
 
-        reviewer_model = "Gemini 1.5 Pro / Strategic Reviewer"
+        reviewer_model = "Strategic Reviewer (solving chain)"
         diagnosis = "Primary agent reached repetition limit on current endpoint. Pivoting attack methodology."
         pivot_strategy = "Construct specialized Python script to inspect alternative endpoints, response headers, and session tokens."
         new_tasks = []
 
-        # 1. Primary Stuck Analyzer: Query Gemini first
-        gemini_success = False
+        # 1. Primary Stuck Analyzer: route through the solving chain. Gemini is deliberately
+        #    NOT used here (Workstream C) — it refuses too often on red-team context to be a
+        #    reliable diagnostician; it is reserved for vision + report authoring.
+        primary_success = False
         try:
-            gemini_provider = model_router.providers.get("gemini")
-            if gemini_provider and await gemini_provider.is_available():
-                logger.info(f"[StrategicPlanner] Invoking Gemini 1.5 Pro to diagnose stuck state for {challenge_name}...")
-                gemini_resp = await gemini_provider.generate_response(
-                    prompt=prompt,
-                    system_instruction="You are a Principal Cyber Operations & Exploit Strategist. Analyze why the agent is stuck and output valid JSON only.",
-                    capability="general_reasoning"
-                )
-                if not gemini_resp.is_refusal and gemini_resp.content:
-                    raw_text = gemini_resp.content.strip()
-                    # Verify Gemini did not state inability to handle the problem
-                    if not any(neg in raw_text.lower() for neg in ["i cannot", "i can't", "unable to assist", "refuse", "against policy"]):
-                        json_match = re.search(r"\{[\s\S]*\}", raw_text)
-                        if json_match:
-                            parsed = json.loads(json_match.group(0))
-                            if isinstance(parsed, dict) and "diagnosis" in parsed:
-                                diagnosis = parsed.get("diagnosis", diagnosis)
-                                pivot_strategy = parsed.get("pivot_strategy", pivot_strategy)
-                                if "new_tasks" in parsed and isinstance(parsed["new_tasks"], list) and len(parsed["new_tasks"]) > 0:
-                                    new_tasks = parsed["new_tasks"]
-                                reviewer_model = getattr(gemini_resp, "model_name", "Gemini 1.5 Pro")
-                                gemini_success = True
+            logger.info(f"[StrategicPlanner] Diagnosing stuck state for {challenge_name} via solving chain...")
+            primary_resp = await model_router.route_request(
+                prompt=prompt,
+                system_instruction="You are a Principal Cyber Operations & Exploit Strategist. Analyze why the agent is stuck and output valid JSON only.",
+                capability="general_reasoning"
+            )
+            if primary_resp and not primary_resp.is_refusal and primary_resp.content:
+                raw_text = primary_resp.content.strip()
+                if not any(neg in raw_text.lower() for neg in ["i cannot", "i can't", "unable to assist", "refuse", "against policy"]):
+                    json_match = re.search(r"\{[\s\S]*\}", raw_text)
+                    if json_match:
+                        parsed = json.loads(json_match.group(0))
+                        if isinstance(parsed, dict) and "diagnosis" in parsed:
+                            diagnosis = parsed.get("diagnosis", diagnosis)
+                            pivot_strategy = parsed.get("pivot_strategy", pivot_strategy)
+                            if "new_tasks" in parsed and isinstance(parsed["new_tasks"], list) and len(parsed["new_tasks"]) > 0:
+                                new_tasks = parsed["new_tasks"]
+                            reviewer_model = getattr(primary_resp, "model_name", "Solving chain")
+                            primary_success = True
         except Exception as e:
-            logger.warning(f"[StrategicPlanner] Gemini stuck analysis encountered error: {e}. Falling back to next best model.")
+            logger.warning(f"[StrategicPlanner] Primary stuck analysis error: {e}. Falling back to next best model.")
 
         # 2. Fallback to Next Best Model (AgentRouter Codex DeepSeek-V4-Flash / GLM-5.3)
-        if not gemini_success:
+        if not primary_success:
             try:
                 logger.info(f"[StrategicPlanner] Gemini unavailable or escalated; routing stuck review to AgentRouter Codex...")
                 review_resp = await model_router.route_request(
@@ -661,36 +660,35 @@ class StrategicPlanner:
         )
         banned: List[str] = list(exhausted_strategies)
 
-        # Primary: Gemini
-        gemini_success = False
+        # Primary: solving chain (Gemini excluded — Workstream C: reserved for
+        # vision + report authoring, and unreliable as a solver due to refusals).
+        primary_success = False
         try:
-            gemini_provider = model_router.providers.get("gemini")
-            if gemini_provider and await gemini_provider.is_available():
-                resp = await gemini_provider.generate_response(
-                    prompt=prompt,
-                    system_instruction=(
-                        "You are a Principal Cyber Operations Strategist. "
-                        "Analyze the stuck swarm and output valid JSON only."
-                    ),
-                    capability="general_reasoning",
-                )
-                if not resp.is_refusal and resp.content:
-                    raw = resp.content.strip()
-                    if not any(neg in raw.lower() for neg in ["i cannot", "i can't", "unable to assist"]):
-                        m = re.search(r"\{[\s\S]*\}", raw)
-                        if m:
-                            parsed = json.loads(m.group(0))
-                            if isinstance(parsed, dict) and "pivot_strategy" in parsed:
-                                pivot_strategy = parsed["pivot_strategy"]
-                                extra_banned = parsed.get("banned_strategies", [])
-                                if isinstance(extra_banned, list):
-                                    banned = list(set(banned) | set(extra_banned))
-                                gemini_success = True
+            resp = await model_router.route_request(
+                prompt=prompt,
+                system_instruction=(
+                    "You are a Principal Cyber Operations Strategist. "
+                    "Analyze the stuck swarm and output valid JSON only."
+                ),
+                capability="general_reasoning",
+            )
+            if resp and not resp.is_refusal and resp.content:
+                raw = resp.content.strip()
+                if not any(neg in raw.lower() for neg in ["i cannot", "i can't", "unable to assist"]):
+                    m = re.search(r"\{[\s\S]*\}", raw)
+                    if m:
+                        parsed = json.loads(m.group(0))
+                        if isinstance(parsed, dict) and "pivot_strategy" in parsed:
+                            pivot_strategy = parsed["pivot_strategy"]
+                            extra_banned = parsed.get("banned_strategies", [])
+                            if isinstance(extra_banned, list):
+                                banned = list(set(banned) | set(extra_banned))
+                            primary_success = True
         except Exception as e:
-            logger.warning(f"[StrategicPlanner] review_swarm_pivot Gemini call failed: {e}")
+            logger.warning(f"[StrategicPlanner] review_swarm_pivot primary call failed: {e}")
 
         # Fallback: model router (DeepSeek / best available)
-        if not gemini_success:
+        if not primary_success:
             try:
                 resp = await model_router.route_request(
                     prompt=prompt,

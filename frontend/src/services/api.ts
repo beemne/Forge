@@ -534,6 +534,20 @@ export class ApiService {
     }
   }
 
+  // Workstream B5: live provider/model catalog health from the last discovery probe.
+  public async getProviderDiscovery(): Promise<any> {
+    const res = await apiFetch(`${API_BASE_URL}/providers/discovery`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }
+
+  // Trigger an on-demand re-probe of every provider's live catalog.
+  public async triggerProviderDiscovery(verify = false): Promise<any> {
+    const res = await apiFetch(`${API_BASE_URL}/providers/discover?verify=${verify}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }
+
   public async getEvidence() {
     try {
       const res = await apiFetch(`${API_BASE_URL}/evidence`);

@@ -129,6 +129,7 @@ class WorkflowRunner:
                         flag_pattern=run_config.get("flag_pattern", ""),
                         max_iterations=int(run_config.get("max_iterations", 0) or 0),
                         max_minutes=int(run_config.get("max_minutes", 0) or 0),
+                        max_tokens=int(run_config.get("max_tokens", 0) or 0),
                         attached_file_paths=run_config.get("attached_file_paths", []),
                         instance_expiry_ts=run_config.get("instance_expiry_ts"),
                     )
@@ -181,13 +182,6 @@ class WorkflowRunner:
                 if rid in self.tasks and not self.tasks[rid].done():
                     self.tasks[rid].cancel()
             logger.warning("UNIVERSAL KILL SWITCH ACTIVATED - ALL RUNS HALTED.")
-
-    def deactivate_kill_switch(self, run_id: Optional[str] = None):
-        """Deactivate kill switch for a specific run or clear all."""
-        if run_id:
-            self.kill_switches[run_id] = False
-        else:
-            self.kill_switches.clear()
 
     def reset(self):
         """Reset runner state for clean test isolation."""

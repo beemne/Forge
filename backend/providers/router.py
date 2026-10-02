@@ -30,19 +30,29 @@ async def _notify_fallback(failed_provider: str, reason: str, next_candidate: Op
 class ModelRouter:
     """Model Router selecting appropriate provider/model based on capability, cost, budget, and CLI routing."""
 
+    # Single source of truth (Workstream C): Gemini is reserved for exactly two jobs —
+    # reading images (vision_read) and authoring long-form report/chat prose
+    # (report_generation). It is deliberately EXCLUDED from every solving/fallback chain
+    # because on real red-team tasks it frequently refuses (safety filters fire on
+    # exploit/recon prompts), which silently burned a fallback slot and stalled runs.
+    # route_request enforces this at runtime so a stray chain entry can never re-enable
+    # Gemini as a solver.
+    GEMINI_ALLOWED_CAPABILITIES = frozenset({"report_generation", "vision_read"})
+
     DEFAULT_ROUTING_MAP = {
         # Curated order: Groq (multi-key), xKiro free models incl. Mistral/Ministral, OpenRouter (GLM/DeepSeek),
-        # Gemini (multi-key), RapidAPI, Cloudflare, NVIDIA. Direct Mistral API sits LAST among LLM options
+        # RapidAPI, Cloudflare, NVIDIA. Direct Mistral API sits LAST among LLM options
         # because its free-tier mistral-small/medium are gated to limit=0; xkiro_mistral serves them free.
-        "recon": ["groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
-        "directory_enumeration": ["groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
-        "web_analysis": ["groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
-        "web_testing": ["groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
-        "code_analysis": ["mistral_codestral", "xkiro_coder", "groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "cloudflare", "nvidia", "mistral"],
-        "reverse_engineering": ["mistral_codestral", "xkiro_coder", "groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "cloudflare", "nvidia", "mistral"],
-        "fast_reasoning": ["groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "cloudflare", "rapidapi_gpt54_mini", "nvidia", "mistral"],
-        "general_reasoning": ["groq", "xkiro", "xkiro_planner", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
-        "verification": ["groq", "xkiro", "xkiro_mistral", "openrouter", "gemini", "rapidapi_deepseek_v32", "cloudflare", "nvidia", "mistral"],
+        # NOTE: Gemini is intentionally absent from every solving chain — see GEMINI_ALLOWED_CAPABILITIES.
+        "recon": ["groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
+        "directory_enumeration": ["groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
+        "web_analysis": ["groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
+        "web_testing": ["groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
+        "code_analysis": ["mistral_codestral", "xkiro_coder", "groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "cloudflare", "nvidia", "mistral"],
+        "reverse_engineering": ["mistral_codestral", "xkiro_coder", "groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "cloudflare", "nvidia", "mistral"],
+        "fast_reasoning": ["groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "cloudflare", "rapidapi_gpt54_mini", "nvidia", "mistral"],
+        "general_reasoning": ["groq", "xkiro", "xkiro_planner", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "rapidapi_gpt54_mini", "cloudflare", "nvidia", "mistral"],
+        "verification": ["groq", "xkiro", "xkiro_mistral", "openrouter", "rapidapi_deepseek_v32", "cloudflare", "nvidia", "mistral"],
         # Writeup / report authoring — Gemini is deliberately FIRST for this task
         # (strong long-form technical prose); the rest of the free chain is the
         # fallback if Gemini is unavailable / quota-exhausted.
@@ -319,7 +329,10 @@ class ModelRouter:
                 target_model = fallback_model
 
             provider_name, target_model_id = self.MODEL_PROVIDER_MAP[target_model]
-            if not quota_manager.is_blacklisted_for_session(provider_name):
+            # Gemini stays vision + report only (Workstream C): a direct request for a
+            # Gemini model on a solving capability falls through to the capability chain.
+            gemini_blocked = provider_name == "gemini" and capability not in self.GEMINI_ALLOWED_CAPABILITIES
+            if not gemini_blocked and not quota_manager.is_blacklisted_for_session(provider_name):
                 provider = self.providers.get(provider_name)
                 if provider and await provider.is_available():
                     try:
@@ -407,8 +420,14 @@ class ModelRouter:
         budget_rejected = False
 
         for provider_name in candidates:
-            # Time-limited circuit breaker check
-            if quota_manager.is_blacklisted_for_session(provider_name):
+            # Gemini is vision + report authoring only (Workstream C). Enforce it here so a
+            # stray chain entry can never route a solving task to Gemini.
+            if provider_name == "gemini" and capability not in self.GEMINI_ALLOWED_CAPABILITIES:
+                continue
+
+            # Generalized circuit breaker (A1): skip if this provider — or this
+            # (provider, capability) pair — is currently tripped.
+            if quota_manager.is_tripped(provider_name, capability=capability):
                 continue
 
             # Apply the quota-window decision computed above. The direct
@@ -450,6 +469,12 @@ class ModelRouter:
                             quota_manager.blacklist_for_session(provider_name, refusal)
                         elif "401" in refusal or "unauthorized" in refusal.lower():
                             quota_manager.blacklist_for_session(provider_name, refusal)
+                        elif "403" in refusal or "forbidden" in refusal.lower() or "permission" in refusal.lower():
+                            quota_manager.trip_breaker(provider_name, capability=capability, reason=refusal)
+                        elif "404" in refusal or "410" in refusal or "not found" in refusal.lower() or "gone" in refusal.lower():
+                            # Model unprovisioned/removed for this provider (the NVIDIA 410/404
+                            # case): long cooldown so the cascade stops rediscovering it mid-run.
+                            quota_manager.trip_breaker(provider_name, capability=capability, reason=refusal)
                         elif "429" in refusal or "rate limit" in refusal.lower() or "rate_limited" in refusal.lower():
                             # Transient on the first hit, but a free-tier model gated to zero
                             # never recovers — trip a cooldown after repeated 429s so we skip it fast.

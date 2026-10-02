@@ -16,15 +16,6 @@ class BaseAgent:
         self.name = name
         self.default_capability = default_capability
 
-    async def plan_next_step(self, context: Dict[str, Any]) -> AgentMessage:
-        target = context.get("target", "127.0.0.1")
-        return AgentMessage(
-            agent=self.name,
-            action="request_capability",
-            capability=self.default_capability,
-            reason=f"[{self.name.upper()}] Requesting capability '{self.default_capability}' for target {target}."
-        )
-
 class OrchestratorAgent(BaseAgent):
     def __init__(self):
         super().__init__(name="orchestrator", default_capability="recon")

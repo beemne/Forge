@@ -160,6 +160,23 @@ def get_providers_health():
         ]
     }
 
+@router.get("/providers/discovery")
+def get_provider_discovery():
+    """Live provider/model availability report from the last catalog probe (Workstream B5):
+    which providers are reachable/auth-ok, catalog model counts, and whether each provider's
+    default model is actually present. Wired into the Providers UI page."""
+    from backend.providers.discovery import discovery_service
+    return discovery_service.get_report()
+
+
+@router.post("/providers/discover")
+async def trigger_provider_discovery(verify: bool = True):
+    """Manually re-probe every provider's live catalog now (B1 'on demand'). Returns the
+    fresh report. verify=false skips the one-completion callability check to save quota."""
+    from backend.providers.discovery import discovery_service
+    return await discovery_service.discover_all(verify=verify)
+
+
 @router.post("/providers/parse-snippet")
 def parse_provider_snippet(req: ParseSnippetRequest):
     result = SnippetParser.parse_snippet(req.snippet)

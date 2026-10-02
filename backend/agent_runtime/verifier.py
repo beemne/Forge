@@ -204,12 +204,8 @@ def infer_expected_answer_type(
     return AnswerType.STRING, None
 
 
-
 class AnswerResolver:
     """Generic resolver and verifier for answer candidates across all challenge types."""
-
-    def looks_like_flag(self, text: str) -> bool:
-        return bool(text) and bool(FLAG_REGEX.search(text)) and not FALSE_FLAG_PATTERNS.search(text)
 
     def looks_like_source_code(self, value: str) -> bool:
         """True when *value* is a source-code / extraction expression, not a captured
@@ -342,7 +338,6 @@ class AnswerResolver:
                 cand_u = m.group(1).strip()
                 if cand_u.lower() not in ["not", "the", "found", "error", "true", "false", "null", "undefined", "successful", "failed", "access"]:
                     _add(cand_u, AnswerType.USERNAME, conf=0.85, reasons=["Discovered username pattern in evidence."])
-
 
 
         elif expected_type == AnswerType.FILENAME:
@@ -532,37 +527,6 @@ class AnswerResolver:
 
         reasons.append("Source of candidate is unknown — treated as unverified candidate.")
         return AnswerVerdict(AnswerStatus.CANDIDATE, 0.40, candidate, reasons, resolved_type, evidence)
-
-    def assess_observation(
-        self,
-        obs: Any,
-        *,
-        command: str = "",
-        action_succeeded: bool = True,
-        target_scope: str = "",
-        expected_format: str = "",
-        description: str = "",
-        challenge_name: str = "",
-        category: str = "",
-        authoritative: bool = False,
-    ) -> Optional[AnswerVerdict]:
-        """Verify the first answer/flag candidate found on a structured Observation."""
-        candidates = getattr(obs, "flag_candidates", None) or getattr(obs, "answer_candidates", None) or []
-        if not candidates:
-            return None
-        cand_val = candidates[0].value if isinstance(candidates[0], AnswerCandidate) else str(candidates[0])
-        return self.assess(
-            cand_val,
-            source=AnswerSource.TOOL_OUTPUT,
-            command=command,
-            action_succeeded=action_succeeded,
-            target_scope=target_scope,
-            expected_format=expected_format,
-            description=description,
-            challenge_name=challenge_name,
-            category=category,
-            authoritative=authoritative,
-        )
 
 
 VERIFIER_SYSTEM_PROMPT = """You are FORGE's Verifier Agent (Agent #4).

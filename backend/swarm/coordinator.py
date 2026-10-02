@@ -246,21 +246,6 @@ class SwarmCoordinator:
             if self.challenge_key and active_missions.get(self.challenge_key) is self:
                 active_missions.pop(self.challenge_key, None)
 
-    @classmethod
-    async def resume_mission(cls, mission_id: str, **kwargs: Any) -> Optional[MissionResult]:
-        """Resume a persisted mission by id (§15)."""
-        loaded = SharedMissionState.load(mission_id)
-        if not loaded:
-            return None
-        coord = cls(
-            run_id=loaded.run_id, challenge_id=loaded.challenge_id, target=loaded.target,
-            category=loaded.category, difficulty=loaded.difficulty,
-            challenge_name=loaded.challenge_name, platform=loaded.platform,
-            description=loaded.description, flag_format=loaded.flag_format,
-            mission_id=mission_id, **kwargs,
-        )
-        return await coord.run(resume=True)
-
     def request_stop(self, reason: str = "Operator stop.") -> None:
         """Ask the mission to stop; in-flight agents pause at their next turn boundary."""
         self._trigger_global_stop(reason, final_status="PAUSED")
@@ -574,19 +559,6 @@ class SwarmCoordinator:
         if m:
             return m.group(1)
         return self.mission.target or ""
-
-    def is_duplicate_action(self, task: Task) -> bool:
-        """Whether *task* repeats an action already dispatched by a DIFFERENT task this
-        mission, or one already recorded as failed (§8). Advisory — used to filter
-        reasoning-injected candidates, NOT to hard-cancel plan/retry/reassign tasks
-        (a deliberate reassignment may share a coarse signature with the action it
-        replaces). A legitimate retry (same task id) is never a duplicate.
-        """
-        sig = self._action_sig_for(task)
-        owner = self._dispatched_actions.get(sig)
-        if owner and owner != task.id:
-            return True
-        return self.mission.has_failed_action(sig) and task.retry_count == 0
 
     def _block_task(self, task: Task, *, category: str, evidence_type: str, title: str,
                     reason: str, action: str, tags: List[str], capability: str = "") -> None:

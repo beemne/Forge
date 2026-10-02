@@ -20,8 +20,7 @@ from backend.swarm.roles import (
     AgentRole, profile, roles_for_category, roles_activated_by,
 )
 from backend.swarm.reasoning import (
-    CandidateAction, FailureClass, RecoveryHint, classify_failure as _classify_failure_class,
-    recovery_hint_for,
+    CandidateAction, FailureClass, classify_failure as _classify_failure_class,
 )
 from backend.swarm.scoring import ActionScorer, mission_uncertainty
 from backend.swarm.candidates import CandidateGenerator
@@ -265,9 +264,6 @@ class Supervisor:
 
         return RecoveryDecision("abandon", f"Unrecoverable failure ({category}); recording dead end.")
 
-    def mission_complete(self, mission_state: Any) -> bool:
-        return bool(getattr(mission_state, "verified_flag", None))
-
     # ------------------------------------------------------------------ #
     # Phase 5 §10-13, §24 — the central "what should we try next?" decision
     # ------------------------------------------------------------------ #
@@ -351,10 +347,6 @@ class Supervisor:
         return ReasoningDecision(selected=selected, ranked=ranked, reason=reason,
                                  uncertainty=uncertainty, mode=mode, considered=len(candidates))
 
-    def select_next_action(self, mission_state: Any, **kwargs: Any) -> Optional[CandidateAction]:
-        """Convenience: just the winning candidate (or None)."""
-        return self.reason(mission_state, **kwargs).selected
-
     # ------------------------------------------------------------------ #
     # Phase 5 §14 — richer failure classification (the string API above is kept)
     # ------------------------------------------------------------------ #
@@ -363,11 +355,6 @@ class Supervisor:
     def classify_failure_detailed(result: Any) -> FailureClass:
         """Return the Phase 5 :class:`FailureClass` taxonomy for a result (§14)."""
         return _classify_failure_class(result)
-
-    @staticmethod
-    def recovery_hint(result: Any) -> RecoveryHint:
-        """The advisory recovery strategy a failure suggests (§14)."""
-        return recovery_hint_for(_classify_failure_class(result))
 
     # ------------------------------------------------------------------ #
 

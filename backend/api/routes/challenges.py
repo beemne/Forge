@@ -178,6 +178,7 @@ class ChatSessionMessageRequest(BaseModel):
     challenge_name: Optional[str] = None
     platform_name: Optional[str] = None
     challenge_type: Optional[str] = None
+    difficulty: Optional[str] = None
     # Turn-2 fields (required on step == 2)
     target_address: Optional[str] = None
     description: Optional[str] = None
@@ -247,31 +248,51 @@ async def send_chat_message(
     # TURN 1: collect the three required fields
     # ------------------------------------------------------------------
     if step == 1:
-        name = (req.challenge_name or "").strip()
-        platform = (req.platform_name or "").strip()
-        challenge_type = (req.challenge_type or "").strip()
+        # Conversational, incremental collection (Workstream F3/F4): accept whatever the
+        # operator supplied, normalize the category, and ask ONLY for the fields still
+        # missing — never fail, never demand everything at once.
+        from backend.utils.challenge_normalize import normalize_category, normalize_difficulty, CATEGORIES
 
-        if not name or not platform or not challenge_type:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Please provide all three fields: challenge_name, "
-                    "platform_name, and challenge_type."
-                ),
-            )
+        if req.challenge_name and req.challenge_name.strip():
+            session["name"] = req.challenge_name.strip()
+        if req.platform_name and req.platform_name.strip():
+            session["platform"] = req.platform_name.strip()
+        if req.challenge_type and req.challenge_type.strip():
+            canon = normalize_category(req.challenge_type)
+            session["type"] = canon or req.challenge_type.strip()
+        if req.difficulty and req.difficulty.strip():
+            session["difficulty"] = normalize_difficulty(req.difficulty)
 
-        session["name"] = name
-        session["platform"] = platform
-        session["type"] = challenge_type
+        missing = []
+        if not session.get("name"):
+            missing.append(("name", "the **challenge name**"))
+        if not session.get("type"):
+            missing.append(("category", f"the **category** (one of: {', '.join(CATEGORIES)})"))
+        if not session.get("difficulty"):
+            missing.append(("difficulty", "the **difficulty** (EASY, MEDIUM, HARD or INSANE)"))
+
+        if missing:
+            # platform is optional; only name/category/difficulty gate advancement.
+            asks = " and ".join(m[1] for m in missing)
+            return {
+                "session_id": session_id,
+                "step": 1,
+                "awaiting": [m[0] for m in missing],
+                "bot_message": f"Thanks. Could you also tell me {asks}?",
+            }
+
         session["step"] = 2
-
+        name = session["name"]
+        platform = session.get("platform") or "Unknown"
         return {
             "session_id": session_id,
             "step": 2,
             "bot_message": (
-                f"Got it — **{name}** on **{platform}** ({challenge_type}).\n\n"
+                f"Got it — **{name}** on **{platform}** "
+                f"({session['type']}, {session['difficulty']}).\n\n"
                 "Now, optionally:\n"
-                "• Paste a **target address** (IP, URL, or `nc host port`) if you have one.\n"
+                "• Paste one or more **target addresses** (IP, URL, or `nc host port`; "
+                "separate several with `+`) if you have them.\n"
                 "• Attach a **challenge file** using the upload button.\n\n"
                 "And in one sentence or more: **what is your goal for this challenge?** "
                 "(This becomes the challenge description.)\n\n"
@@ -294,13 +315,16 @@ async def send_chat_message(
         extra_paths = [p for p in (req.attached_file_paths or []) if p and os.path.isfile(p)]
         all_paths = session.get("uploaded_paths", []) + extra_paths
 
-        # Build the same request object the form path uses
+        # Build the same request object the form path uses. Difficulty comes from the
+        # conversation (normalized in step 1); multiple targets are joined with ' + '
+        # per the FORGE multi-target convention (Workstream F5), never commas.
+        from backend.utils.challenge_normalize import normalize_targets
         creation_req = CreateChallengeRequest(
             name=session["name"],
-            category=session["type"],          # stored verbatim, no coercion
-            difficulty="MEDIUM",               # sensible default; user can change via form later
+            category=session["type"],
+            difficulty=session.get("difficulty") or "MEDIUM",
             description=description,
-            target_address=(req.target_address or "").strip(),
+            target_address=normalize_targets(req.target_address),
             working_directory="",
             platform_name=session["platform"],
             requires_root=False,

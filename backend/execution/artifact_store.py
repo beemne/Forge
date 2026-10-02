@@ -108,9 +108,6 @@ class ArtifactStore:
     def for_session(self, session_id: str) -> List[ArtifactRecord]:
         return [r for r in self._records if r.session_id == session_id]
 
-    def for_agent(self, agent_id: str) -> List[ArtifactRecord]:
-        return [r for r in self._records if r.agent_id == agent_id]
-
     def all_records(self) -> List[ArtifactRecord]:
         return list(self._records)
 

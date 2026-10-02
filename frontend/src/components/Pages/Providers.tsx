@@ -64,6 +64,30 @@ export const Providers: React.FC<ProvidersProps> = ({
   const [modelIdInput, setModelIdInput] = useState('');
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
+  // Workstream B5: live provider/model catalog health from the discovery probe.
+  const [discovery, setDiscovery] = useState<any>(null);
+  const [probing, setProbing] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    apiService.getProviderDiscovery()
+      .then((d) => { if (alive) setDiscovery(d); })
+      .catch(() => { /* discovery is best-effort; panel just stays empty */ });
+    return () => { alive = false; };
+  }, []);
+
+  const handleReprobe = async () => {
+    setProbing(true);
+    try {
+      const d = await apiService.triggerProviderDiscovery(false);
+      setDiscovery(d);
+    } catch {
+      /* ignore — keep last report */
+    } finally {
+      setProbing(false);
+    }
+  };
+
   // Auto-parse snippet in real-time as user pastes or types
   useEffect(() => {
     if (!snippetInput.trim()) {
@@ -331,6 +355,58 @@ export const Providers: React.FC<ProvidersProps> = ({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Live catalog health (Workstream B5): which providers are actually reachable,
+          authenticated, and serving their configured model right now. */}
+      <div className="glass-panel border border-slate-800 rounded-xl p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wide">Live Catalog Health</h3>
+          <button
+            onClick={handleReprobe}
+            disabled={probing}
+            className="px-3 py-1.5 rounded-lg border border-cyber-cyan/40 text-cyber-cyan text-xs font-mono hover:bg-cyber-cyan/10 transition-colors disabled:opacity-50"
+          >
+            {probing ? 'Probing…' : 'Re-probe catalogs'}
+          </button>
+        </div>
+        {!discovery || !discovery.providers || Object.keys(discovery.providers).length === 0 ? (
+          <p className="text-xs text-slate-500 font-mono">
+            No probe has run yet. Discovery runs automatically in the background at startup;
+            click “Re-probe catalogs” to refresh now.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {Object.values(discovery.providers).map((h: any) => {
+              const color = h.health_status === 'healthy' ? 'text-cyber-emerald'
+                : h.health_status === 'degraded' ? 'text-cyber-amber' : 'text-red-400';
+              const dot = h.health_status === 'healthy' ? 'bg-cyber-emerald'
+                : h.health_status === 'degraded' ? 'bg-cyber-amber' : 'bg-red-400';
+              return (
+                <div key={h.name} className="border border-slate-800 rounded-lg p-3 bg-obsidian-950/40">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-200 text-sm">{h.name}</span>
+                    <span className={`flex items-center gap-1 text-[11px] font-mono ${color}`}>
+                      <span className={`w-2 h-2 rounded-full ${dot}`}></span>{h.health_status}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-400 font-mono space-y-0.5">
+                    <div>catalog: {h.catalog_model_count} model(s)</div>
+                    <div>auth: {h.auth_ok ? 'ok' : 'failed'} • {Math.round(h.latency_ms)}ms</div>
+                    {h.default_model_present === false && (
+                      <div className="text-cyber-amber">default model not in catalog</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {discovery?.last_probe_age_seconds != null && (
+          <p className="text-[10px] text-slate-600 font-mono">
+            last probe {Math.round(discovery.last_probe_age_seconds)}s ago
+          </p>
+        )}
       </div>
 
       {/* Providers Cards Grid */}

@@ -97,17 +97,38 @@ class GeminiProvider(HTTPBaseProvider):
             keys_pool.insert(0, api_key.strip())
         self.api_keys = list(dict.fromkeys(keys_pool))
         self.current_key_idx = 0
+        # Indices of keys that are permanently bad this session (401/403 — project denied
+        # access / invalid key). A dead key must never be retried, or it poisons vision
+        # and report calls (Workstream C4).
+        self._dead_keys: set = set()
         if self.api_keys:
             self.api_key = self.api_keys[0]
 
-    def _rotate_key(self) -> str:
-        """Rotates to the next available API key in the pool."""
+    def _all_keys_dead(self) -> bool:
+        return bool(self.api_keys) and len(self._dead_keys) >= len(self.api_keys)
+
+    def _rotate_key(self, *, mark_dead: bool = False) -> str:
+        """Advance to the next LIVE key in the pool.
+
+        mark_dead=True records the current key as permanently bad (auth/permission) so it
+        is skipped for the rest of the session.
+        """
         if not self.api_keys:
             return self.api_key
+        if mark_dead:
+            self._dead_keys.add(self.current_key_idx)
+        n = len(self.api_keys)
         prev_idx = self.current_key_idx
-        self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
+        for _ in range(n):
+            self.current_key_idx = (self.current_key_idx + 1) % n
+            if self.current_key_idx not in self._dead_keys:
+                break
         self.api_key = self.api_keys[self.current_key_idx]
-        logger.warning(f"[GEMINI KEY ROTATION] Quota exhausted on key #{prev_idx + 1}. Rotated to key #{self.current_key_idx + 1} of {len(self.api_keys)}.")
+        logger.warning(
+            f"[GEMINI KEY ROTATION] Rotated off key #{prev_idx + 1}"
+            f"{' (marked dead)' if mark_dead else ''} to key #{self.current_key_idx + 1} "
+            f"of {n} ({len(self._dead_keys)} dead)."
+        )
         return self.api_key
 
     async def is_available(self) -> bool:
@@ -150,15 +171,25 @@ class GeminiProvider(HTTPBaseProvider):
         last_err = ""
 
         for attempt in range(max_attempts):
+            if self._all_keys_dead():
+                break
+            if self.api_keys and self.current_key_idx in self._dead_keys:
+                self._rotate_key()
             active_key = self.api_keys[self.current_key_idx] if self.api_keys else self.api_key
             url = f"{self.base_url}/{model_to_use}:generateContent?key={active_key}"
 
             try:
-                data, _hdrs = await self._post_json(url, {"Content-Type": "application/json"}, payload)
+                data, resp_headers = await self._post_json(url, {"Content-Type": "application/json"}, payload)
+                # Passively record rate-limit headroom from this real response (A3; no probes).
+                try:
+                    quota_manager.record_ratelimit_snapshot(
+                        self.name, parse_ratelimit_headers(self.name, resp_headers))
+                except Exception:
+                    pass
                 candidates = data.get("candidates", [])
                 if not candidates:
                     return ProviderResponse(provider_name=self.name, model_name=model_to_use, content="", is_refusal=True, refusal_reason="No candidates returned")
-                
+
                 text_content = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 return ProviderResponse(
                     provider_name=self.name,
@@ -171,16 +202,29 @@ class GeminiProvider(HTTPBaseProvider):
             except Exception as e:
                 err_str = str(e)
                 last_err = err_str
-                # If 429 Resource Exhausted or 402, rotate to next key and retry immediately
-                if "429" in err_str or "402" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    logger.warning(f"Gemini key #{self.current_key_idx + 1} quota exhausted: {err_str[:120]}. Rotating...")
+                el = err_str.lower()
+                # Transient quota / rate limit → try another key immediately (key stays live).
+                if "429" in err_str or "402" in err_str or "resource_exhausted" in el or "rate limit" in el:
+                    logger.warning(f"Gemini key #{self.current_key_idx + 1} quota/rate limited: {err_str[:120]}. Rotating...")
                     self._rotate_key()
                     continue
-                else:
-                    logger.error(f"Gemini API error on model '{model_to_use}': {err_str}")
-                    return ProviderResponse(provider_name=self.name, model_name=model_to_use, content="", is_refusal=True, refusal_reason=err_str)
+                # Permanently-bad key (invalid key / project denied access) → mark dead so it
+                # is never retried this session, then rotate to a live key.
+                if ("401" in err_str or "403" in err_str or "permission_denied" in el
+                        or "api key not valid" in el or "denied access" in el or "forbidden" in el):
+                    logger.warning(f"Gemini key #{self.current_key_idx + 1} rejected (auth/permission): {err_str[:120]}. Marking dead, rotating...")
+                    self._rotate_key(mark_dead=True)
+                    continue
+                # Model missing/gone (could be per-key provisioning) → try the next key.
+                if "404" in err_str or "410" in err_str or "not found" in el or "not_found" in el or "unavailable" in el:
+                    logger.warning(f"Gemini model '{model_to_use}' unavailable on key #{self.current_key_idx + 1}: {err_str[:120]}. Rotating...")
+                    self._rotate_key()
+                    continue
+                logger.error(f"Gemini API error on model '{model_to_use}': {err_str}")
+                return ProviderResponse(provider_name=self.name, model_name=model_to_use, content="", is_refusal=True, refusal_reason=err_str)
 
-        return ProviderResponse(provider_name=self.name, model_name=model_to_use, content="", is_refusal=True, refusal_reason=f"All {max_attempts} Gemini API keys exhausted: {last_err}")
+        dead = len(self._dead_keys)
+        return ProviderResponse(provider_name=self.name, model_name=model_to_use, content="", is_refusal=True, refusal_reason=f"All {max_attempts} Gemini API keys exhausted ({dead} dead): {last_err}")
 
 class OpenAISpecProvider(HTTPBaseProvider):
     """Generic Provider for OpenAI-compatible REST APIs (OpenRouter, NVIDIA NIM, Cerebras, AgentRouter, Groq, Mistral)."""
@@ -330,7 +374,13 @@ class CloudflareProvider(HTTPBaseProvider):
         payload = {"messages": messages}
 
         try:
-            data, _hdrs = await self._post_json(url, headers, payload)
+            data, resp_headers = await self._post_json(url, headers, payload)
+            # Passively record rate-limit headroom from this real response (A3; no probes).
+            try:
+                quota_manager.record_ratelimit_snapshot(
+                    self.name, parse_ratelimit_headers(self.name, resp_headers))
+            except Exception:
+                pass
             result = data.get("result", {})
             text_content = result.get("response", "")
             return ProviderResponse(

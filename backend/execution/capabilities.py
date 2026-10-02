@@ -344,12 +344,6 @@ class CapabilityService:
     def provider_specs(self, name: str) -> List[ProviderSpec]:
         return list(self.registry.get(name, []))
 
-    def spec_for(self, name: str, provider: str) -> Optional[ProviderSpec]:
-        for s in self.registry.get(name, []):
-            if s.name == provider:
-                return s
-        return None
-
     # ------------------------------------------------------------------ #
 
     def _acquisition_possible(self, specs: List[ProviderSpec]) -> bool:

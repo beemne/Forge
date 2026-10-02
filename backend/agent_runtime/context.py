@@ -23,10 +23,16 @@ runtime produces prompts consistent with the swarm/orchestrator — no divergent
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 from backend.agents.agent_prompt import AgentContext, build_agent_prompt
+from backend.agent_runtime.context_budget import (
+    estimate_tokens, budget_tokens, model_window, COMPACT_THRESHOLD,
+)
+
+logger = logging.getLogger("forge.agent_runtime.context")
 
 # Bounded-window sizes.
 _RECENT_TURNS = 8
@@ -153,11 +159,17 @@ class ContextBuilder:
         python_libs: str = "",
         detected_os: str = "Linux",
         cross_session_failures: str = "",
+        model_name: str = "",
     ) -> Tuple[str, str]:
-        """Return (system_instruction, user_prompt) with bounded, layered context."""
-        history = self._compose_history(state, latest_observation, recent_events,
-                                        recovery_directive, cross_session_failures)
+        """Return (system_instruction, user_prompt) with bounded, layered context.
 
+        When *model_name* is given (the model the next turn will use), the prompt is
+        auto-compacted to stay under that model's context window (Workstream D): the
+        oldest trajectory turns are dropped first while the protected blocks — current
+        state, failed-approach ledger, cross-session failures, recovery directive — are
+        always preserved. Omitting model_name disables budgeting (byte-identical to the
+        previous behaviour), so callers that do not yet know the model are unaffected.
+        """
         ctx = AgentContext(
             platform=state.platform or "",
             challenge_name=state.challenge_name or "",
@@ -170,10 +182,80 @@ class ContextBuilder:
             python_libs=python_libs or "requests, cryptography, pwntools",
             working_directory="",
             flag_pattern=state.flag_format or "picoCTF{...}|FLAG{...}|flag{...}|HTB{...}|CTF{...}",
-            history_context=history,
+            history_context="",
             memory_context=memory_context or "",
         )
-        return build_agent_prompt(ctx)
+
+        events = list(recent_events or [])
+        if not model_name:
+            # Budgeting disabled — single compose, unchanged behaviour.
+            ctx.history_context = self._compose_history(
+                state, latest_observation, events, recovery_directive, cross_session_failures)
+            return build_agent_prompt(ctx)
+
+        # Model-aware budget: compose, and if over threshold compact EXTRACTIVELY in order
+        # of least value first — drop supplementary memory recall, then the oldest
+        # trajectory turns — until it fits or only protected blocks remain. The protected
+        # blocks (mission state, flag candidates, failed-approach ledger, recovery
+        # directive) are composed every iteration and never dropped.
+        budget = budget_tokens(model_name)
+        mem = memory_context or ""
+        compacted = False
+        dropped_turns = 0
+        dropped_memory = False
+        while True:
+            ctx.memory_context = mem
+            ctx.history_context = self._compose_history(
+                state, latest_observation, events, recovery_directive, cross_session_failures)
+            system_instruction, user_prompt = build_agent_prompt(ctx)
+            if estimate_tokens(system_instruction) + estimate_tokens(user_prompt) <= budget:
+                break
+            if mem:
+                mem = ""                       # 1) drop supplementary recall (most compressible)
+                dropped_memory = True
+                compacted = True
+                continue
+            if events:
+                drop_n = max(1, len(events) // 2)   # 2) drop the oldest trajectory turns
+                dropped_turns += drop_n
+                events = events[drop_n:]
+                compacted = True
+                continue
+            break                               # only protected blocks remain
+
+        if compacted:
+            self._emit_compaction(state, model_name, dropped_turns, dropped_memory,
+                                  estimate_tokens(system_instruction) + estimate_tokens(user_prompt), budget)
+        return system_instruction, user_prompt
+
+    def _emit_compaction(self, state: Any, model_name: str, dropped_turns: int,
+                         dropped_memory: bool, final_tokens: int, budget: int) -> None:
+        """Observability for an auto-compaction (D4): log + best-effort WebSocket event.
+        Protected state/evidence/flag candidates are never dropped, so this is safe."""
+        window = model_window(model_name)
+        logger.info(
+            f"[ContextBudget] Auto-compacted context for model '{model_name}': "
+            f"dropped_memory={dropped_memory}, dropped {dropped_turns} oldest trajectory "
+            f"turn(s); ~{final_tokens} tokens (<= {budget} budget of {window} window)."
+        )
+        try:
+            import asyncio
+            from backend.websocket.manager import ws_manager
+            payload = {
+                "type": "CONTEXT_COMPACTED",
+                "data": {
+                    "challenge_id": getattr(state, "challenge_id", "") or "",
+                    "model": model_name, "dropped_turns": dropped_turns,
+                    "dropped_memory": dropped_memory,
+                    "approx_tokens": final_tokens, "budget_tokens": budget,
+                    "window_tokens": window,
+                },
+            }
+            asyncio.get_running_loop().create_task(ws_manager.broadcast(payload))
+        except RuntimeError:
+            pass  # no running loop (sync/test) — skip live surfacing
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
 

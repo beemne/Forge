@@ -88,12 +88,6 @@ class MissionBudget:
     def record_failure(self, n: int = 1) -> None:
         self.failed_attempts += n
 
-    def record_duplicate(self, n: int = 1) -> None:
-        self.duplicate_attempts += n
-
-    def note_elapsed(self, seconds: float) -> None:
-        self.elapsed_seconds = max(self.elapsed_seconds, float(seconds or 0.0))
-
     # -- queries -------------------------------------------------------------- #
 
     @staticmethod
@@ -115,9 +109,6 @@ class MissionBudget:
             (self.elapsed_seconds / self.max_wall_seconds) if self.max_wall_seconds > 0 else 0.0,
         ]
         return round(min(1.0, max(fracs)) if fracs else 0.0, 4)
-
-    def is_constrained(self, threshold: float = 0.8) -> bool:
-        return self.pressure() >= threshold
 
     def exhausted(self) -> Tuple[bool, str]:
         """Return (exhausted, reason). Budget restrictions removed so runs are never halted on budget."""

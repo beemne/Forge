@@ -142,18 +142,6 @@ class SessionManager:
         finally:
             db.close()
 
-    def find_active_for_challenge(self, challenge_id: str) -> Optional[AgentSession]:
-        db = SessionLocal()
-        try:
-            row = (db.query(AgentSessionModel)
-                   .filter(AgentSessionModel.challenge_id == challenge_id)
-                   .order_by(AgentSessionModel.created_at.desc()).first())
-            if not row:
-                return None
-            return self._to_session(row, MissionState.from_dict(row.state or {}))
-        finally:
-            db.close()
-
     # ------------------------------------------------------------------ #
     # Persist / transition
     # ------------------------------------------------------------------ #

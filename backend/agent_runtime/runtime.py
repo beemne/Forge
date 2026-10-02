@@ -525,6 +525,10 @@ class AgentRuntime:
                 recovery_directive=recovery_directive, memory_context=memory_context,
                 tool_inventory=self._tool_inventory, python_libs=self._python_libs,
                 detected_os=self._detected_os, cross_session_failures=cross_session_failures,
+                # Budget/compact against the model the last turn used (Workstream D). Empty on
+                # turn 1 (budgeting disabled); a mid-run model switch is picked up next turn,
+                # so the budget always tracks the model actually in use (D3 fallback-aware).
+                model_name=getattr(session, "model_name", "") or "",
             )
 
             # ── (Step 4) ask model for next action ──

@@ -1,7 +1,6 @@
 import os
 import sys
 import shutil
-import asyncio
 import logging
 from typing import Optional
 from backend.providers.base import BaseProvider
@@ -48,18 +47,3 @@ class BaseCLIProvider(BaseProvider):
 
     async def is_available(self) -> bool:
         return self.find_executable() is not None
-
-    async def get_version(self) -> str:
-        exe = self.find_executable()
-        if not exe:
-            return "NOT_INSTALLED"
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                exe, "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-            return stdout.decode(errors="replace").strip()
-        except Exception as e:
-            return f"ERROR ({str(e)})"
