@@ -13,10 +13,9 @@ import os
 import re
 import time
 import hashlib
-import yaml
 import argparse
 import logging
-from typing import List, Dict, Optional
+from typing import List, Optional
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))

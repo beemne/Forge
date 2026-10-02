@@ -5,7 +5,6 @@ Uses Windows Win32 API SetThreadExecutionState with graceful fallbacks.
 
 import sys
 import logging
-from typing import Optional
 
 logger = logging.getLogger("forge.keep_awake")
 

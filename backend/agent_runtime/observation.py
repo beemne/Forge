@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 # Canonical flag patterns live in the verifier (single source of truth for the runtime).
 from backend.agent_runtime.verifier import (
-    FLAG_REGEX, FALSE_FLAG_PATTERNS, AnswerResolver, AnswerCandidate, AnswerSource,
+    FLAG_REGEX, FALSE_FLAG_PATTERNS, AnswerResolver, AnswerSource,
 )
 
 # ── Deterministic extraction patterns ────────────────────────────────────────
@@ -100,7 +100,7 @@ def _detect_technologies(text: str) -> List[str]:
     return found
 
 
-from backend.agents.response_profiler import extract_generic_artifacts, ResponseProfiler, AnomalyResult
+from backend.agents.response_profiler import extract_generic_artifacts, ResponseProfiler
 
 @dataclass
 class Observation:

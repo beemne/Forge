@@ -8,16 +8,19 @@ either performs it or returns a STRUCTURED "blocked" result so the swarm can
 replan — instead of retrying a missing ``tesseract`` dozens of times (the Binary
 Digits failure, §20).
 
-No paid/cloud vision API is required or assumed; providers are local and pluggable
-via the capability registry, so a future vision provider is added there without
-touching callers.
+The preferred provider is Gemini vision whenever a ``GEMINI_API_KEY`` is
+configured: it needs no local binary and reads text straight from the image
+bytes, so an environment without ``tesseract``/``pytesseract`` installed no
+longer dead-ends. Local providers (tesseract, pytesseract, easyocr) remain as
+offline fallbacks, and all providers are pluggable via the capability registry,
+so callers never change when the provider order does.
 """
 from __future__ import annotations
 
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 logger = logging.getLogger("forge.execution.ocr")
 
@@ -115,6 +118,8 @@ class OCRService:
 
         provider = cap.provider
         try:
+            if provider == "gemini":
+                return await self._gemini(image_path)
             if provider == "tesseract":
                 return await self._tesseract(image_path, lang, timeout_seconds)
             if provider == "pytesseract":
@@ -130,6 +135,41 @@ class OCRService:
         return self._blocked_result(cap)
 
     # -- providers -- #
+
+    async def _gemini(self, image_path: str) -> OCRResult:
+        """Extract text from an image with Gemini vision (preferred cloud OCR).
+
+        Reuses the router's already-registered Gemini provider so the shared
+        multi-key rotation pool and budget state are honoured; only builds a
+        fresh provider from settings when the router has none registered.
+        """
+        provider = None
+        try:
+            from backend.providers.router import model_router
+            provider = model_router.providers.get("gemini")
+        except Exception:
+            provider = None
+        if provider is None:
+            from backend.providers.real_providers import GeminiProvider
+            from backend.config import settings
+            keys = [k.strip() for k in (getattr(settings, "GEMINI_API_KEYS", "") or "").split(",") if k.strip()]
+            provider = GeminiProvider(api_key=getattr(settings, "GEMINI_API_KEY", ""), api_keys=keys)
+
+        resp = await provider.generate_response(
+            prompt=(
+                "You are an OCR engine. Transcribe EVERY character of readable text in "
+                "this image exactly as it appears, preserving case, symbols and spacing. "
+                "If a CTF flag is present, include it verbatim. Output only the raw text "
+                "with no explanation."
+            ),
+            capability="ocr",
+            image_path=image_path,
+        )
+        if getattr(resp, "is_refusal", False):
+            reason = getattr(resp, "refusal_reason", "") or "Gemini vision refused the OCR request"
+            return OCRResult(status=OCR_ERROR, provider="gemini",
+                             reason=str(reason)[:300], recommended_action="replan")
+        return OCRResult(status=OCR_OK, text=getattr(resp, "content", "") or "", provider="gemini")
 
     async def _tesseract(self, image_path: str, lang: str, timeout_seconds: int) -> OCRResult:
         from backend.execution.service import execution_service

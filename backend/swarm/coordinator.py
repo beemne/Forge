@@ -24,12 +24,10 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from backend.agent_runtime import (
-    FlagVerifier, FlagSource, FlagStatus, VerifierAgent, AnswerCandidate, AnswerStatus,
-    session_manager, trajectory_store,
+    FlagVerifier, VerifierAgent, session_manager, trajectory_store,
 )
 
 from backend.swarm import events
@@ -40,7 +38,7 @@ from backend.swarm.mission import SharedMissionState
 from backend.swarm.roles import AgentRole
 from backend.swarm.scheduler import TaskScheduler
 from backend.swarm.supervisor import Supervisor
-from backend.swarm.tasks import Task, TaskStatus
+from backend.swarm.tasks import Task
 
 # Phase 5 — adaptive reasoning layer (deterministic; pure data + scoring).
 from backend.swarm.candidates import CandidateGenerator
@@ -48,7 +46,7 @@ from backend.swarm.dedup import action_signature
 from backend.swarm.progress import (
     MissionBudget, ProgressLedger, StopCondition, evaluate_stop,
 )
-from backend.swarm.reasoning import FailureClass, classify_failure as _classify_failure_class
+from backend.swarm.reasoning import classify_failure as _classify_failure_class
 from backend.swarm.scoring import ActionScorer, mission_uncertainty
 from backend.swarm.target_reconciliation import reconcile_target
 

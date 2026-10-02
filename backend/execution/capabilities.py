@@ -43,6 +43,7 @@ class ProviderKind(str, Enum):
     TOOL = "tool"        # a CLI binary on PATH
     PYLIB = "pylib"      # an importable Python module
     BUILTIN = "builtin"  # a feature the execution backend itself provides
+    CLOUD = "cloud"      # a hosted API provider, "present" when its key is configured
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,12 @@ CAPABILITY_REGISTRY: Dict[str, List[ProviderSpec]] = {
         _P("posix_pty", ProviderKind.BUILTIN),           # POSIX only
     ],
     "ocr": [
+        # Gemini vision is the preferred OCR provider when a GEMINI_API_KEY is
+        # configured: it needs no local binary (killing the recurring
+        # "tesseract/pytesseract not installed" dead-ends), reads text directly
+        # from the image bytes, and runs on the same multi-key Gemini pool the
+        # rest of FORGE already uses. Local providers remain as offline fallbacks.
+        _P("gemini", ProviderKind.CLOUD),
         _P("tesseract", ProviderKind.TOOL, binary="tesseract", install_recipe="apt-get install tesseract-ocr"),
         _P("pytesseract", ProviderKind.PYLIB, module="pytesseract", requires_tool="tesseract", install_recipe="pip install pytesseract"),
         _P("easyocr", ProviderKind.PYLIB, module="easyocr", install_recipe="pip install easyocr"),
@@ -240,11 +247,28 @@ class CapabilityService:
             return True
         return True
 
+    def _cloud_present(self, spec: ProviderSpec) -> bool:
+        """A CLOUD provider is 'present' when its hosted API key is configured.
+
+        Discovery stays environment-truthful: we do not call out to the API, we
+        only report the provider as usable when FORGE actually holds a key for it.
+        """
+        if spec.name == "gemini":
+            try:
+                from backend.config import settings
+                return bool(getattr(settings, "GEMINI_API_KEY", "")
+                            or getattr(settings, "GEMINI_API_KEYS", ""))
+            except Exception:
+                return False
+        return False
+
     def _present(self, spec: ProviderSpec) -> bool:
         if spec.kind is ProviderKind.TOOL:
             return self._tool_present(spec)
         if spec.kind is ProviderKind.PYLIB:
             return self._pylib_present(spec)
+        if spec.kind is ProviderKind.CLOUD:
+            return self._cloud_present(spec)
         return self._builtin_present(spec)
 
     # ------------------------------------------------------------------ #

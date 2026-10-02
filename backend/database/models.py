@@ -1,6 +1,5 @@
 import uuid
-from datetime import datetime
-from typing import Optional, Dict, Any, List
+from backend.utils.time import utcnow
 from sqlalchemy import (
     Column, String, Text, Boolean, Float, Integer, DateTime, ForeignKey, JSON, Index
 )
@@ -21,7 +20,7 @@ class ProviderConfigModel(Base):
     api_key_configured = Column(Boolean, default=False)
     latency_ms = Column(Float, default=0.0)
     health_status = Column(String, default="healthy") # healthy, degraded, unavailable
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 class ModelConfigModel(Base):
     __tablename__ = "models"
@@ -50,13 +49,13 @@ class ChallengeModel(Base):
     flag_status = Column(String, default="UNFOUND")
     flag = Column(String, nullable=True)
     requires_root = Column(Boolean, default=False)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, default=0)
     mission_plan = Column(JSON, default=dict)
     approval_mode = Column(String, nullable=True, default=None) # 'auto', 'manual', or None (inherit global)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     
     targets = relationship("TargetProfileModel", back_populates="challenge", cascade="all, delete-orphan")
     runs = relationship("RunModel", back_populates="challenge", cascade="all, delete-orphan")
@@ -76,7 +75,7 @@ class TargetProfileModel(Base):
     address_history = Column(JSON, default=list) # e.g. ["127.0.0.1"]
     discovery_method = Column(String, default="FORGE Auto Ingest")
     verification_status = Column(String, default="unverified") # verified, changed, stale
-    last_verified_at = Column(DateTime, default=datetime.utcnow)
+    last_verified_at = Column(DateTime, default=utcnow)
     
     challenge = relationship("ChallengeModel", back_populates="targets")
 
@@ -87,7 +86,7 @@ class AgentStateModel(Base):
     run_id = Column(String, ForeignKey("runs.id"), nullable=False)
     agent_name = Column(String, nullable=False)
     state_data = Column(JSON, default=dict)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 class RunModel(Base):
     __tablename__ = "runs"
@@ -97,8 +96,8 @@ class RunModel(Base):
     status = Column(String, default="QUEUED") # QUEUED, RUNNING, WAITING_FOR_TOOL, WAITING_FOR_USER, PAUSED, COMPLETED, CANCELLED
     current_phase = Column(String, default="recon")
     current_agent = Column(String, default="orchestrator")
-    started_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     
     challenge = relationship("ChallengeModel", back_populates="runs")
     checkpoints = relationship("CheckpointModel", back_populates="run", cascade="all, delete-orphan")
@@ -111,7 +110,7 @@ class CheckpointModel(Base):
     run_id = Column(String, ForeignKey("runs.id"), nullable=False)
     state_snapshot = Column(JSON, nullable=False)
     last_successful_action = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     resumable = Column(Boolean, default=True)
     
     run = relationship("RunModel", back_populates="checkpoints")
@@ -132,7 +131,7 @@ class ToolExecutionModel(Base):
     stderr = Column(Text, default="")
     exit_code = Column(Integer, nullable=True)
     duration_ms = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     
     run = relationship("RunModel", back_populates="tool_executions")
 
@@ -149,7 +148,7 @@ class FindingModel(Base):
     endpoint = Column(String, default="")
     verified = Column(Boolean, default=False)
     confidence = Column(Float, default=0.5)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     
     challenge = relationship("ChallengeModel", back_populates="findings")
 
@@ -164,7 +163,7 @@ class EvidenceModel(Base):
     content = Column(Text, default="")
     file_path = Column(String, nullable=True)
     confidence = Column(Float, default=1.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     
     challenge = relationship("ChallengeModel", back_populates="evidence")
 
@@ -175,7 +174,7 @@ class ReportModel(Base):
     challenge_id = Column(String, ForeignKey("challenges.id"), nullable=False)
     title = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
 class KnowledgeEntryModel(Base):
     __tablename__ = "knowledge_entries"
@@ -186,7 +185,7 @@ class KnowledgeEntryModel(Base):
     technology = Column(String, default="")
     attack_pattern = Column(Text, default="")
     solution_summary = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
 class ProviderUsageModel(Base):
     __tablename__ = "provider_usage"
@@ -199,7 +198,7 @@ class ProviderUsageModel(Base):
     cost_usd = Column(Float, default=0.0)
     latency_ms = Column(Float, default=0.0)
     success = Column(Boolean, default=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=utcnow)
 
 class AuditLogModel(Base):
     __tablename__ = "audit_logs"
@@ -211,7 +210,7 @@ class AuditLogModel(Base):
     privilege_level = Column(String, default="SAFE")
     approved = Column(Boolean, default=True)
     details = Column(JSON, default=dict)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=utcnow)
 
 
 class ChatMessageModel(Base):
@@ -222,7 +221,7 @@ class ChatMessageModel(Base):
     challenge_id = Column(String, ForeignKey("challenges.id"), nullable=False, index=True)
     role = Column(String, nullable=False)  # user, assistant, system
     content = Column(Text, nullable=False, default="")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
     challenge = relationship("ChallengeModel", back_populates="messages")
 
@@ -302,8 +301,8 @@ class ExperienceModel(Base):
     # ── Playbook promotion link (§10) ─────────────────────────────────────────
     promoted_playbook_id = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     attempts = relationship("ExperienceAttemptModel", back_populates="experience", cascade="all, delete-orphan")
     usages = relationship("MemoryUsageModel", back_populates="experience", cascade="all, delete-orphan")
@@ -320,7 +319,7 @@ class ExperienceAttemptModel(Base):
     outcome = Column(String, default="failure")           # success | failure
     reason = Column(Text, default="")                     # why it failed / how verified
     evidence = Column(Text, default="")                   # generalized supporting output
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     experience = relationship("ExperienceModel", back_populates="attempts")
 
@@ -334,7 +333,7 @@ class MemoryUsageModel(Base):
     challenge_id = Column(String, nullable=True)
     event = Column(String, default="retrieved")           # retrieved | used | success | failure
     note = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     experience = relationship("ExperienceModel", back_populates="usages")
 
@@ -395,8 +394,8 @@ class AgentSessionModel(Base):
     total_prompt_tokens = Column(Integer, default=0)
     total_completion_tokens = Column(Integer, default=0)
 
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     completed_at = Column(DateTime, nullable=True)
 
 
@@ -442,7 +441,7 @@ class TrajectoryEventModel(Base):
     prompt_tokens = Column(Integer, default=0)
     completion_tokens = Column(Integer, default=0)
 
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
     # Composite index for the hot read path: ordered replay of one session.
     __table_args__ = (
@@ -487,8 +486,8 @@ class SwarmMissionModel(Base):
     # ── Outcome ─────────────────────────────────────────────────────────────────
     verified_flag = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     completed_at = Column(DateTime, nullable=True)
 
 
@@ -533,7 +532,7 @@ class SwarmTaskModel(Base):
     required_capabilities = Column(JSON, default=list)   # capability names the task needs
     target_type = Column(String, default="")             # required TargetType.value (or "")
 
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -573,7 +572,7 @@ class SwarmEvidenceModel(Base):
     related_vulnerability = Column(String, default="")
 
     signature = Column(String, index=True, default="")  # dedup signature
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
     __table_args__ = (
         Index("ix_swarm_evidence_mission_type", "mission_id", "evidence_type"),
@@ -599,4 +598,4 @@ class SchemaVersionModel(Base):
 
     id = Column(Integer, primary_key=True)
     version = Column(Integer, nullable=False)
-    applied_at = Column(DateTime, default=datetime.utcnow)
+    applied_at = Column(DateTime, default=utcnow)

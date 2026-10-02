@@ -3,7 +3,7 @@ the execution-layer status views, target-type detection, interactive sessions, a
 the emergency kill switch that halts a running workflow."""
 
 import os
-from datetime import datetime
+from backend.utils.time import utcnow
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -114,7 +114,7 @@ class TerminalExecuteRequest(BaseModel):
 
 @router.post("/terminal/execute")
 async def execute_terminal_command(req: TerminalExecuteRequest):
-    start_time = datetime.utcnow()
+    start_time = utcnow()
     # Phase 3: route the operator terminal through the SAME execution layer as the
     # agent (ExecutionService -> LocalBackend -> ProcessManager) instead of spawning a
     # subprocess here. This gives Windows python3->python normalisation, process-tree

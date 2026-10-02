@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 import re
 import urllib.parse
 from dataclasses import dataclass, field, asdict

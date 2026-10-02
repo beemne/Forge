@@ -32,10 +32,9 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional
 
 from backend.swarm.reasoning import (
-    CandidateAction, Cost, InformationGain, Risk, profile_for, ACTION_PROFILES,
+    CandidateAction, profile_for,
 )
 from backend.swarm.scoring import information_gain_for
-from backend.swarm.roles import AgentRole
 
 logger = logging.getLogger("forge.swarm.candidates")
 

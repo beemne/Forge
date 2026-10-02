@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 from backend.database.models import AuditLogModel
 

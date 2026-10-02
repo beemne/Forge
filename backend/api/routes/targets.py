@@ -2,7 +2,7 @@
 address without losing its accumulated profile."""
 
 import os
-from datetime import datetime
+from backend.utils.time import utcnow
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -66,7 +66,7 @@ async def verify_target(target_id: str, db: Session = Depends(get_db)):
 
     is_file = os.path.exists(target.current_address)
     target.verification_status = "verified_file" if is_file else "verified_network"
-    target.last_verified_at = datetime.utcnow()
+    target.last_verified_at = utcnow()
     db.commit()
 
     await ws_manager.broadcast({"event": "TARGET_VERIFIED", "target_id": target_id, "address": target.current_address, "status": target.verification_status})
@@ -79,7 +79,7 @@ async def rediscover_target(target_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Target identity not found")
 
     target.verification_status = "rediscovered"
-    target.last_verified_at = datetime.utcnow()
+    target.last_verified_at = utcnow()
     db.commit()
 
     await ws_manager.broadcast({"event": "TARGET_REDISCOVERED", "target_id": target_id, "address": target.current_address})
@@ -104,7 +104,7 @@ async def perform_target_rebind(target: TargetProfileModel, new_address: str, db
     target.current_address = new_addr
     target.address_history = list(existing_history)
     target.verification_status = "address_updated"
-    target.last_verified_at = datetime.utcnow()
+    target.last_verified_at = utcnow()
     db.commit()
     db.refresh(target)
 

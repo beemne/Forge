@@ -42,8 +42,7 @@ from backend.agent_runtime.repetition import RepetitionDetector, RepetitionKind
 from backend.agent_runtime.session import AgentSession, SessionManager, session_manager
 from backend.agent_runtime.trajectory import TrajectoryStore, trajectory_store
 from backend.agent_runtime.verifier import (
-    FlagSource, FlagStatus, FlagVerifier, AnswerStatus, AnswerResolver, VerifierAgent,
-    AnswerCandidate, AnswerSource, AnswerType,
+    FlagVerifier, AnswerStatus, VerifierAgent, AnswerCandidate, AnswerSource,
 )
 
 logger = logging.getLogger("forge.agent_runtime.runtime")

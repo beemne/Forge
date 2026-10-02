@@ -8,6 +8,7 @@ import re
 import shutil
 import uuid as _uuid_mod
 from datetime import datetime, timezone
+from backend.utils.time import utcnow
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -169,7 +170,6 @@ class SaveWriteupRequest(BaseModel):
 class ChatSessionStartRequest(BaseModel):
     """Body for POST /challenges/chat-session — starts a new two-turn session."""
     # No required fields: the first bot message is always the same fixed prompt.
-    pass
 
 
 class ChatSessionMessageRequest(BaseModel):
@@ -1012,7 +1012,7 @@ async def create_challenge(req: CreateChallengeRequest, db: Session = Depends(ge
             description=challenge.description
         )
         challenge.mission_plan = initial_plan
-        challenge.started_at = datetime.utcnow()
+        challenge.started_at = utcnow()
         db.commit()
         db.refresh(challenge)
     except Exception as plan_err:
@@ -1047,7 +1047,7 @@ async def create_challenge(req: CreateChallengeRequest, db: Session = Depends(ge
         challenge.id, platform, category, difficulty, challenge.name)
     with open(ch_log_path, "w", encoding="utf-8") as f:
         f.write(f"=== FORGE CTF CHALLENGE LOG STARTED ===\n")
-        f.write(f"Timestamp: {datetime.utcnow().isoformat()} UTC\n")
+        f.write(f"Timestamp: {utcnow().isoformat()} UTC\n")
         f.write(f"Challenge ID: {challenge.id}\n")
         f.write(f"Challenge Name: {challenge.name}\n")
         f.write(f"Platform: {platform} | Category: {category} | Difficulty: {difficulty}\n")

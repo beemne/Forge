@@ -1,9 +1,8 @@
-import asyncio
 import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from backend.utils.time import utcnow
 from typing import Dict, Any, List, Optional
 from backend.providers.router import model_router
 
@@ -356,8 +355,8 @@ class StrategicPlanner:
             "status": "IN_PROGRESS",
             "summary": summary,
             "model": model_used,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": utcnow().isoformat(),
+            "updated_at": utcnow().isoformat(),
             "tasks": tasks,
             "strategic_reviews": []
         }
@@ -435,7 +434,7 @@ class StrategicPlanner:
                         tasks[nxt_idx]["status"] = "IN_PROGRESS"
                         break
 
-        mission_plan["updated_at"] = datetime.utcnow().isoformat()
+        mission_plan["updated_at"] = utcnow().isoformat()
         return mission_plan
 
     async def review_and_adapt_plan(
@@ -556,7 +555,7 @@ class StrategicPlanner:
         # Log review record
         review_entry = {
             "id": f"rev-{uuid.uuid4().hex[:8]}",
-            "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
+            "timestamp": utcnow().strftime("%H:%M:%S"),
             "reviewer_model": reviewer_model,
             "stuck_reason": stuck_reason,
             "diagnosis": diagnosis,
@@ -602,7 +601,7 @@ class StrategicPlanner:
                 merged_tasks.append(nt)
 
         mission_plan["tasks"] = merged_tasks
-        mission_plan["updated_at"] = datetime.utcnow().isoformat()
+        mission_plan["updated_at"] = utcnow().isoformat()
         return mission_plan
 
     async def review_swarm_pivot(

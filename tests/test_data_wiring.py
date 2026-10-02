@@ -16,7 +16,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_forge.db"
 
 from backend.main import app
 from backend.database.session import get_db, get_engine, SessionLocal, init_db
-from backend.database.models import Base, ChallengeModel, TargetProfileModel, ProviderUsageModel, TrajectoryEventModel, RunModel, FindingModel, EvidenceModel, CheckpointModel, AgentStateModel, ReportModel
+from backend.database.models import Base, ChallengeModel, TargetProfileModel, ProviderUsageModel, TrajectoryEventModel, RunModel, FindingModel, EvidenceModel, CheckpointModel, AgentStateModel, ReportModel, ChatMessageModel, ToolExecutionModel
 
 class TestDataWiringEndpoints(unittest.TestCase):
     """Test suite verifying full data wiring endpoints for candidates, artifacts, decisions, targets, and providers."""
@@ -29,13 +29,20 @@ class TestDataWiringEndpoints(unittest.TestCase):
     def setUp(self):
         self.db = SessionLocal()
         try:
-            # Clean test records in FK order
+            # Clean test records in FK order. Bulk query().delete() issues raw SQL
+            # DELETEs and does NOT fire the ORM relationship cascades, so every child
+            # that references challenges/runs must be deleted here by hand, children
+            # first. tool_executions (-> runs) and chat_messages (-> challenges) are
+            # easy to miss: omitting them makes a later DELETE FROM runs/challenges
+            # fail with a FOREIGN KEY constraint error once any row exists.
             self.db.query(AgentStateModel).delete()
             self.db.query(CheckpointModel).delete()
+            self.db.query(ToolExecutionModel).delete()
             self.db.query(EvidenceModel).delete()
             self.db.query(FindingModel).delete()
             self.db.query(ReportModel).delete()
             self.db.query(RunModel).delete()
+            self.db.query(ChatMessageModel).delete()
             self.db.query(TargetProfileModel).delete()
             self.db.query(ChallengeModel).delete()
             self.db.query(ProviderUsageModel).delete()

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+from backend.utils.time import utcnow
 from typing import Any, Dict, List, Optional
 
 from backend.swarm.dedup import normalize_text
@@ -485,7 +486,7 @@ class SharedMissionState:
                 row.shared_state = self.to_dict()
                 row.verified_flag = self.verified_flag
                 if self.status in ("COMPLETED", "FAILED", "CANCELLED"):
-                    row.completed_at = datetime.utcnow()
+                    row.completed_at = utcnow()
                 db.commit()
             finally:
                 db.close()

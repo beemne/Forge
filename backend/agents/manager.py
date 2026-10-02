@@ -1,6 +1,5 @@
-import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 logger = logging.getLogger("forge.agents")

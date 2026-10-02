@@ -101,6 +101,28 @@ def get_providers(db: Session = Depends(get_db)):
             "last_error": err_msg,
             "fallback_priority": priority
         })
+
+    # Surface providers that have recorded usage/errors but are not currently
+    # registered in the router (e.g. no key loaded this session, or a key was
+    # rotated out). Without this, the dashboard's provider panel goes blank
+    # whenever no live key is configured even though real call history exists.
+    registered = {entry["name"] for entry in provider_list}
+    seen_usage = set(usage_counts) | set(last_errors)
+    for idx, pname in enumerate(sorted(seen_usage - registered)):
+        provider_list.append({
+            "name": pname,
+            "is_paid": False,
+            "status": "INACTIVE",
+            "models": [m for m, (pn, _) in model_router.MODEL_PROVIDER_MAP.items() if pn == pname],
+            "default_model": pname,
+            "quota": "Not Configured",
+            "is_quota_limited": False,
+            "in_batch_window": True,
+            "transport": "API",
+            "requests": usage_counts.get(pname, 0),
+            "last_error": last_errors.get(pname, "None"),
+            "fallback_priority": len(provider_list) + idx + 1,
+        })
     return provider_list
 
 

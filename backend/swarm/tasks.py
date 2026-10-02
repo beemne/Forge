@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from backend.utils.time import utcnow
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -60,7 +61,7 @@ class Task:
     failure_reason: str = ""
     agent_session_id: Optional[str] = None
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: utcnow().isoformat())
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
 
@@ -147,7 +148,7 @@ class Task:
             required_capabilities=list(getattr(row, "required_capabilities", None) or []),
             target_type=(getattr(row, "target_type", "") or ""),
             agent_session_id=row.agent_session_id, id=row.id,
-            created_at=(row.created_at.isoformat() if row.created_at else datetime.utcnow().isoformat()),
+            created_at=(row.created_at.isoformat() if row.created_at else utcnow().isoformat()),
             started_at=(row.started_at.isoformat() if row.started_at else None),
             completed_at=(row.completed_at.isoformat() if row.completed_at else None),
         )

@@ -17,9 +17,9 @@ so the runtime integrates with FORGE's established checkpoint/restore system.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from backend.utils.time import utcnow
+from typing import Optional
 
 from backend.database.session import SessionLocal
 from backend.database.models import AgentSessionModel
@@ -230,7 +230,7 @@ class SessionManager:
                 row.model_name = sess.model_name or row.model_name
                 row.total_prompt_tokens = sess.total_prompt_tokens
                 row.total_completion_tokens = sess.total_completion_tokens
-                row.completed_at = datetime.utcnow()
+                row.completed_at = utcnow()
                 db.commit()
             sess.status = status
         except Exception as e:

@@ -21,7 +21,7 @@ a per-term breakdown so the coordinator can log *why* an action was chosen.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
 from backend.swarm.reasoning import (
     CandidateAction, Cost, InformationGain, Risk, profile_for,

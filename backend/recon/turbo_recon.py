@@ -4,7 +4,7 @@ import asyncio
 import logging
 import httpx
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 from backend.agents.artifact_classifier import classify_http_response, save_artifact_binary
 

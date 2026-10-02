@@ -3,7 +3,7 @@ import time
 import asyncio
 import tempfile
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from backend.providers.base import ProviderResponse
 from backend.providers.cli.base import BaseCLIProvider, redact_secrets
 from backend.config import settings

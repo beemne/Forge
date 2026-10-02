@@ -5,7 +5,7 @@ import sqlite3
 import hashlib
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Set
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("forge.playbook_vault")

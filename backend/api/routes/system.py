@@ -319,7 +319,8 @@ pending_install_requests: dict = {}
 @router.post("/package/install")
 async def install_package(req: PackageInstallRequest):
     """User-approved pip install for a missing solver dependency."""
-    import subprocess, sys, logging
+    import sys
+    import logging
     logger = logging.getLogger("forge.package_installer")
 
     package_name = req.package_name.strip()

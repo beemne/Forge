@@ -3,7 +3,6 @@ import re
 import sys
 import difflib
 from urllib.parse import urlparse
-import asyncio
 import time
 import shlex
 import shutil

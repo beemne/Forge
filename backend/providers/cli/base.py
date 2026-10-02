@@ -3,10 +3,8 @@ import sys
 import shutil
 import asyncio
 import logging
-import time
-import tempfile
-from typing import Dict, Any, Optional
-from backend.providers.base import BaseProvider, ProviderResponse
+from typing import Optional
+from backend.providers.base import BaseProvider
 
 logger = logging.getLogger("forge.cli_provider")
 

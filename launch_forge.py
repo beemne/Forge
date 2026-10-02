@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import subprocess
 import uvicorn
 
@@ -38,10 +39,20 @@ def main():
 
     # Build frontend if dist doesn't exist
     if not os.path.exists(dist_dir):
-        print("[+] Building web portal bundle...")
         npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+        if shutil.which(npm_cmd) is None:
+            print(f"[!] '{npm_cmd}' not found on PATH. Install Node.js 18+ (which provides npm) "
+                  f"and re-run, or build the bundle manually in {frontend_dir}.")
+            sys.exit(1)
+        # A fresh checkout has no node_modules, so `npm run build` would fail with
+        # "tsc: not found". Install dependencies first (identical on Windows and Linux).
+        node_modules = os.path.join(frontend_dir, "node_modules")
+        if not os.path.isdir(node_modules):
+            print("[+] Installing web portal dependencies (first run; this can take a minute)...")
+            subprocess.run([npm_cmd, "install"], cwd=frontend_dir, check=True)
+        print("[+] Building web portal bundle...")
         subprocess.run([npm_cmd, "run", "build"], cwd=frontend_dir, check=True)
-        print("[✓] Web portal bundle ready.")
+        print("[OK] Web portal bundle ready.")
 
     free_port(8000)
 

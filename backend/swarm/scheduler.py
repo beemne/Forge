@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 
 from backend.swarm.tasks import Task, TaskStatus
 from backend.swarm.dedup import is_duplicate
+from backend.utils.time import utcnow
 
 logger = logging.getLogger("forge.swarm.scheduler")
 
@@ -104,26 +105,23 @@ class TaskScheduler:
                 self._set(task, TaskStatus.BLOCKED.value)
 
     def mark_running(self, task: Task, *, assigned_agent: str = "", session_id: Optional[str] = None) -> None:
-        from datetime import datetime
         task.assigned_agent = assigned_agent or task.assigned_agent
         task.agent_session_id = session_id or task.agent_session_id
-        task.started_at = task.started_at or datetime.utcnow().isoformat()
+        task.started_at = task.started_at or utcnow().isoformat()
         self._set(task, TaskStatus.RUNNING.value)
 
     def mark_completed(self, task: Task, *, result: Optional[dict] = None,
                        evidence_ids: Optional[List[str]] = None) -> None:
-        from datetime import datetime
         if result is not None:
             task.result = result
         if evidence_ids:
             task.evidence_ids = list(dict.fromkeys((task.evidence_ids or []) + evidence_ids))
-        task.completed_at = datetime.utcnow().isoformat()
+        task.completed_at = utcnow().isoformat()
         self._set(task, TaskStatus.COMPLETED.value)
 
     def mark_failed(self, task: Task, *, reason: str = "") -> None:
-        from datetime import datetime
         task.failure_reason = reason or task.failure_reason
-        task.completed_at = datetime.utcnow().isoformat()
+        task.completed_at = utcnow().isoformat()
         self._set(task, TaskStatus.FAILED.value)
 
     def mark_cancelled(self, task: Task, *, reason: str = "") -> None:

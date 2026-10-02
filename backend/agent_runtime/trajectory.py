@@ -21,6 +21,7 @@ import re
 import sqlite3
 import logging
 from datetime import datetime, timezone
+from backend.utils.time import utcnow
 from typing import Any, Dict, List, Optional
 
 from backend.database.session import SessionLocal
@@ -241,7 +242,7 @@ class TrajectorySearch:
                 (ev.id, ev.session_id or "", ev.challenge_id or "", ev.agent_id or "",
                  ev.event_type or "", ev.command or "", output, obs_text.strip(),
                  ev.decision_summary or "", ev.strategy or "", ev.result or "",
-                 int(ev.sequence or 0), (ev.created_at or datetime.utcnow()).isoformat()),
+                 int(ev.sequence or 0), (ev.created_at or utcnow()).isoformat()),
             )
 
     def search(

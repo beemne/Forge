@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -24,23 +25,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("forge.main")
-
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
-    description="Autonomous CTF Intelligence & Exploitation Framework"
-)
-
-# CORS is restricted to an explicit origin allowlist (FORGE_ALLOWED_ORIGINS).
-# A wildcard here is unsafe: with allow_credentials=True Starlette reflects the
-# caller's Origin header back, so any site the operator visits could drive this API.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.FORGE_ALLOWED_ORIGINS.split(",") if o.strip()],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 def _mark_stale_runs_interrupted():
     """On boot, mark runs/challenges left RUNNING by a previous session as INTERRUPTED.
@@ -67,29 +51,31 @@ def _mark_stale_runs_interrupted():
     finally:
         db.close()
 
-@app.on_event("startup")
-def on_startup():
-    # The production entrypoint. Both launchers -- this module's __main__ and
-    # launch_forge.py -- serve backend.main:app, so authorizing here covers them, and
-    # this is the only place the production database is authorized. A test process
-    # never runs this hook, so tests cannot open forge.db however they are launched.
-    # See backend/database/guard.py.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan (replaces the deprecated on_event startup/shutdown hooks).
+
+    Startup: this is the production entrypoint. Both launchers -- this module's
+    __main__ and launch_forge.py -- serve backend.main:app, so authorizing here
+    covers them, and this is the only place the production database is authorized.
+    A test process never enters this lifespan, so tests cannot open forge.db
+    however they are launched. See backend/database/guard.py.
+
+    Shutdown: release every FORGE-tracked interactive process so none survives a
+    controlled shutdown (Phase 4.x hardening §7). Interactive sessions own
+    long-lived OS processes; without this they would outlive the server and hold
+    file locks on forge.db / logs. close_all() kills each tracked process tree,
+    reaps it, and unregisters its PID -- idempotent and guarded so a cleanup error
+    can never block shutdown.
+    """
     authorize_production_database()
     logger.info("Initializing database tables...")
     init_db()
     _mark_stale_runs_interrupted()
     logger.info(f"{settings.PROJECT_NAME} initialized and ready.")
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Clean-process-lifecycle rule: release every FORGE-tracked interactive process
-    so none survives a controlled shutdown (Phase 4.x hardening §7).
+    yield
 
-    Interactive sessions own long-lived OS processes; without this hook they would
-    outlive the server and hold file locks on forge.db / logs. close_all() kills each
-    tracked process tree, reaps it, and unregisters its PID — idempotent and guarded
-    so a cleanup error can never block shutdown.
-    """
     try:
         from backend.execution.interactive import interactive_manager
         closed = await interactive_manager.close_all(reason="app_shutdown")
@@ -97,6 +83,25 @@ async def on_shutdown():
             logger.info(f"[Shutdown] Closed {closed} tracked interactive session(s).")
     except Exception as e:
         logger.warning(f"[Shutdown] Interactive session cleanup failed: {e}")
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description="Autonomous CTF Intelligence & Exploitation Framework",
+    lifespan=lifespan,
+)
+
+# CORS is restricted to an explicit origin allowlist (FORGE_ALLOWED_ORIGINS).
+# A wildcard here is unsafe: with allow_credentials=True Starlette reflects the
+# caller's Origin header back, so any site the operator visits could drive this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.FORGE_ALLOWED_ORIGINS.split(",") if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Single router-level gate: covers every current and future /api handler without
 # touching routes.py. No-op while FORGE_API_KEY is unset (dev mode).

@@ -2,11 +2,11 @@ import os
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional
 from backend.config import settings
 from backend.providers.base import BaseProvider, ProviderResponse
 
-from backend.providers.real_providers import GeminiProvider, OpenAISpecProvider, HuggingFaceProvider, CloudflareProvider
+from backend.providers.real_providers import GeminiProvider, OpenAISpecProvider, CloudflareProvider
 from backend.providers.quota_manager import quota_manager
 
 logger = logging.getLogger("forge.router")
@@ -101,7 +101,10 @@ class ModelRouter:
         "ministral-3b": ("xkiro_mistral", "mistralai/ministral-3b"),
         "ministral-14b": ("xkiro_mistral", "mistralai/ministral-14b"),
         # Direct aliases
-        "codestral-2508": ("xkiro_coder", "mistralai/codestral-2508"),
+        # NOTE: "codestral-2508" is intentionally NOT redefined here. Its primary
+        # mapping is the direct Mistral Codestral API above; the xKiro-hosted
+        # variant is reachable via the distinct "xkiro-codestral" alias. A second
+        # "codestral-2508" entry here silently shadowed the Mistral mapping.
         "devstral-medium": ("xkiro_coder", "mistralai/devstral-medium"),
         "sensenova-6.8": ("xkiro", "sensenova/sensenova-6.8-flash-lite"),
     }
@@ -407,6 +410,16 @@ class ModelRouter:
             # Time-limited circuit breaker check
             if quota_manager.is_blacklisted_for_session(provider_name):
                 continue
+
+            # Apply the quota-window decision computed above. The direct
+            # target-model path already honours it; without this the fallback
+            # cascade kept calling AgentRouter batch (Claude/GPT) models known to
+            # be exhausted or outside their replenishment window — wasted attempts
+            # that surfaced as "all providers exhausted" noise.
+            if skip_quota_limited:
+                models_under = [m for m, (pn, _) in self.MODEL_PROVIDER_MAP.items() if pn == provider_name]
+                if models_under and any(quota_manager.is_quota_limited_model(m) for m in models_under):
+                    continue
 
             provider = self.providers.get(provider_name)
             if not provider:

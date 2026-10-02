@@ -5,7 +5,7 @@ try:
     import psutil
 except ImportError:
     psutil = None
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 class EnvironmentDetector:
     """Discovers host operating system, hardware resources, and installed security tools."""

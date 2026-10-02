@@ -23,7 +23,6 @@ Detection, Resolution, and Verification are distinct concerns:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re

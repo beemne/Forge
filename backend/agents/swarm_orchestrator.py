@@ -9,32 +9,28 @@ Features:
 """
 
 import asyncio
-import base64
-import codecs
 import hashlib
-import json
 import re
 import os
-import shlex
-import sys
 import time
 import logging
 import traceback
-import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 
 from backend.database.session import SessionLocal
-from backend.database.models import RunModel, ChallengeModel, TargetProfileModel, EvidenceModel, FindingModel, ToolExecutionModel, CheckpointModel, TrajectoryEventModel
+from backend.database.models import RunModel, ChallengeModel, ToolExecutionModel, CheckpointModel, TrajectoryEventModel
 from backend.providers.router import model_router
 from backend.tools.manager import tool_manager, LOCAL_EXEC_CATEGORIES
-from backend.privilege.manager import privilege_manager
 from backend.privilege.classify import classify_command_privilege
 from backend.privilege.gate import require_approval, SHARED_PENDING_APPROVALS
+# Part of this module's patchable surface: tests patch
+# backend.agents.swarm_orchestrator.privilege_manager, so it must stay importable
+# here even though gating now flows through classify_command_privilege/require_approval.
+from backend.privilege.manager import privilege_manager  # noqa: F401
 from backend.websocket.manager import ws_manager
 from backend.engine.keep_awake import keep_awake_manager
 from backend.reporting.generator import report_generator
-from backend.knowledge.playbook_vault import playbook_vault
 from backend.knowledge.memory_retriever import memory_retriever
 from backend.knowledge.experience_memory import experience_memory
 from backend.knowledge.experience_extractor import experience_extractor
@@ -46,20 +42,12 @@ from backend.agents.agent_prompt import AgentContext, build_agent_prompt, make_c
 from backend.agents.artifact_acquisition import acquire_artifacts
 from backend.agents import checkpoint_pipeline
 from backend.agents.checkpoint_pipeline import (
-    AgentCheckpointRecord,
-    evaluate_suggestions,
     SuggestionDecision,
 )
-from backend.agents.strategic_planner import strategic_planner
 from backend.agent_runtime.verifier import (
-    AnswerResolver, AnswerCandidate, AnswerVerdict, AnswerStatus, AnswerSource,
-    VerifierAgent, FLAG_REGEX, FALSE_FLAG_PATTERNS,
+    AnswerSource, FLAG_REGEX, FALSE_FLAG_PATTERNS,
 )
 from backend.agents.response_profiler import (
-    ResponseProfiler,
-    AnomalyResult,
-    CandidateArtifact,
-    extract_generic_artifacts,
     generate_post_exploitation_probes,
 )
 
@@ -68,23 +56,17 @@ logger = logging.getLogger("forge.swarm")
 
 # ── Relocated modules (re-exported here so existing imports keep working) ────
 from backend.agents.swarm_helpers import (
-    STRATEGY_ATTEMPT_LIMIT,
-    STRATEGY_STALE_LIMIT,
     _HEADER_HINT_RE,
     _append_to_challenge_log,
-    _compute_evidence_fingerprint,
     _decode_artifacts,
     _effective_elapsed_minutes,
-    _english_score,
     _force_pivot_if_needed,
-    _get_challenge_log_path,
-    _is_meaningful_header,
     _normalize_command_shape,
     _normalize_failure_signature,
     _normalize_recon_target,
     _update_strategy_state,
 )
-from backend.agents.swarm_state import SwarmBlackboard, SwarmTask
+from backend.agents.swarm_state import SwarmBlackboard
 
 
 def _capability_gap_retry_context(

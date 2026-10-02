@@ -23,7 +23,6 @@ class BaseProvider(ABC):
     @abstractmethod
     async def is_available(self) -> bool:
         """Check if provider API key is configured and endpoint reachable."""
-        pass
 
     @abstractmethod
     async def generate_response(
@@ -35,4 +34,3 @@ class BaseProvider(ABC):
         **kwargs
     ) -> ProviderResponse:
         """Generate response from provider."""
-        pass

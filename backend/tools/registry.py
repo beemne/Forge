@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 class ToolMetadata(BaseModel):

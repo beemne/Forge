@@ -6,12 +6,11 @@ import sys
 import time
 import logging
 import uuid
-from datetime import datetime
-from typing import Dict, Any, Optional
+from backend.utils.time import utcnow
+from typing import Dict, Any, Optional, Set
 from sqlalchemy.orm import Session
 
 from backend.database.session import SessionLocal
-from backend.agents.manager import agent_manager
 from backend.providers.router import model_router
 from backend.tools.manager import tool_manager, ToolExecutionResult
 from backend.privilege.gate import require_approval, SHARED_PENDING_APPROVALS
@@ -26,8 +25,8 @@ from backend.recon.turbo_recon import turbo_recon
 from backend.agents.stream_condenser import stream_condenser
 from backend.agents.strategic_planner import strategic_planner
 from backend.agent_runtime.verifier import (
-    AnswerResolver, AnswerCandidate, AnswerVerdict, AnswerStatus, AnswerSource,
-    VerifierAgent, FLAG_REGEX, FALSE_FLAG_PATTERNS,
+    AnswerResolver, AnswerCandidate, AnswerSource, VerifierAgent, FLAG_REGEX,
+    FALSE_FLAG_PATTERNS,
 )
 
 logger = logging.getLogger("forge.orchestrator")
@@ -248,7 +247,7 @@ class AutonomousOrchestrator:
             ch_obj = db_init.query(ChallengeModel).filter(ChallengeModel.id == challenge_id).first()
             if ch_obj:
                 if not ch_obj.started_at:
-                    ch_obj.started_at = datetime.utcnow()
+                    ch_obj.started_at = utcnow()
                 
                 # Check existing mission plan or generate new pre-flight plan
                 if ch_obj.mission_plan and isinstance(ch_obj.mission_plan, dict) and ch_obj.mission_plan.get("tasks"):
@@ -307,7 +306,7 @@ class AutonomousOrchestrator:
 
                 # Record live operation uptime / duration
                 if challenge.started_at:
-                    duration_sec = int((datetime.utcnow() - challenge.started_at).total_seconds())
+                    duration_sec = int((utcnow() - challenge.started_at).total_seconds())
                     challenge.duration_seconds = max(challenge.duration_seconds or 0, duration_sec)
 
                 run.current_phase = "recon" if turn <= 3 else ("web" if turn <= 10 else "exploitation")
@@ -656,7 +655,7 @@ class AutonomousOrchestrator:
                             "package_name": pip_package,
                             "import_name": missing_import,
                             "error_snippet": error_snippet,
-                            "timestamp": datetime.utcnow().strftime("%H:%M:%S")
+                            "timestamp": utcnow().strftime("%H:%M:%S")
                         })
 
                         # Wait for user decision (up to 120s)
@@ -750,7 +749,7 @@ class AutonomousOrchestrator:
                             "command": cmd_line,
                             "reason": root_reason,
                             "error_snippet": error_snippet,
-                            "timestamp": datetime.utcnow().strftime("%H:%M:%S")
+                            "timestamp": utcnow().strftime("%H:%M:%S")
                         })
 
                         root_event = asyncio.Event()
@@ -829,7 +828,7 @@ class AutonomousOrchestrator:
                 # Append Full AI Conversation, Timings & Telemetry to Dedicated Challenge Log File
                 from backend.utils.challenge_paths import resolve_challenge_log_path
                 ch_log_path = resolve_challenge_log_path(challenge_id)
-                now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                now_str = utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
                 try:
                     with open(ch_log_path, "a", encoding="utf-8") as f:
                         f.write(f"[{now_str} UTC] TURN #{turn} (Model: {model_used} | LLM Latency: {llm_duration_ms}ms | Exec Duration: {cmd_duration_ms}ms)\n")
@@ -856,7 +855,7 @@ class AutonomousOrchestrator:
                     "command": cmd_line,
                     "output": log_output,
                     "exit_code": tool_res.exit_code,
-                    "timestamp": datetime.utcnow().strftime("%H:%M:%S")
+                    "timestamp": utcnow().strftime("%H:%M:%S")
                 })
 
                 # Distill output via Stream Condenser for history summary & prompt context
@@ -968,7 +967,7 @@ class AutonomousOrchestrator:
                     from backend.utils.challenge_paths import resolve_challenge_log_path
                     ch_log_path = resolve_challenge_log_path(challenge_id)
                     with open(ch_log_path, "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.utcnow().strftime('%H:%M:%S')}] TURN #{turn} ERROR: {str(e)}\n{traceback.format_exc()}\n")
+                        f.write(f"[{utcnow().strftime('%H:%M:%S')}] TURN #{turn} ERROR: {str(e)}\n{traceback.format_exc()}\n")
                 except Exception:
                     pass
             finally:
@@ -983,13 +982,13 @@ class AutonomousOrchestrator:
             challenge = db.query(ChallengeModel).filter(ChallengeModel.id == challenge_id).first()
             if challenge:
                 if challenge.started_at:
-                    duration_sec = int((datetime.utcnow() - challenge.started_at).total_seconds())
+                    duration_sec = int((utcnow() - challenge.started_at).total_seconds())
                     challenge.duration_seconds = max(challenge.duration_seconds or 0, duration_sec)
 
                 if challenge.flag_status == "CAPTURED" or challenge.status == "COMPLETED":
                     challenge.status = "COMPLETED"
                     challenge.progress = 100
-                    challenge.completed_at = datetime.utcnow()
+                    challenge.completed_at = utcnow()
                     if run:
                         run.status = "COMPLETED"
                     
@@ -1039,9 +1038,9 @@ class AutonomousOrchestrator:
         challenge.flag = flag_str
         challenge.status = "COMPLETED"
         challenge.progress = 100
-        challenge.completed_at = datetime.utcnow()
+        challenge.completed_at = utcnow()
         if challenge.started_at:
-            duration_sec = int((datetime.utcnow() - challenge.started_at).total_seconds())
+            duration_sec = int((utcnow() - challenge.started_at).total_seconds())
             challenge.duration_seconds = max(challenge.duration_seconds or 0, duration_sec)
 
         if run:

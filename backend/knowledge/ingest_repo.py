@@ -18,12 +18,12 @@ import tempfile
 import subprocess
 import argparse
 import logging
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from backend.knowledge.ingest_writeup import parse_writeup_content
-from backend.knowledge.playbook_vault import playbook_vault, CATEGORIES
+from backend.knowledge.playbook_vault import playbook_vault
 
 logger = logging.getLogger("forge.ingest_repo")
 logging.basicConfig(level=logging.INFO, format="[IngestRepo] %(message)s")

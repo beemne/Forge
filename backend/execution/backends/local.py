@@ -20,7 +20,6 @@ python / python3:
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import sys
 from typing import Optional
@@ -58,11 +57,6 @@ def _resolve_python() -> Optional[str]:
             if p:
                 return candidate
     return None
-
-
-def _resolve_binary(name: str) -> Optional[str]:
-    """Return the absolute path of *name* if it is on PATH, else None."""
-    return shutil.which(name)
 
 
 class LocalBackend:

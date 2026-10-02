@@ -30,6 +30,7 @@ import re
 import sqlite3
 import logging
 from datetime import datetime, timezone
+from backend.utils.time import utcnow
 from typing import Any, Dict, List, Optional
 
 from backend.database.session import SessionLocal
@@ -136,7 +137,7 @@ class ExperienceMemory:
                     " ".join(exp.tags or []), " ".join(exp.technologies or []), keywords,
                     exp.outcome or "success", float(exp.confidence or 0.0),
                     float(exp.success_rate or 0.0), int(exp.times_successful or 0),
-                    (exp.created_at or datetime.utcnow()).isoformat(),
+                    (exp.created_at or utcnow()).isoformat(),
                 ),
             )
 
@@ -394,7 +395,7 @@ class ExperienceMemory:
             alpha = 0.3
             target = 1.0 if success else 0.0
             exp.success_rate = round((1 - alpha) * float(exp.success_rate or 0.0) + alpha * target, 3)
-            exp.last_used = datetime.utcnow()
+            exp.last_used = utcnow()
             db.add(MemoryUsageModel(experience_id=experience_id, run_id=run_id, challenge_id=challenge_id,
                                     event="success" if success else "failure", note=note[:500]))
             db.commit()
@@ -507,7 +508,7 @@ class ExperienceMemory:
                 d["usage_log"] = [
                     {"event": u.event, "run_id": u.run_id, "challenge_id": u.challenge_id,
                      "note": u.note, "created_at": u.created_at.isoformat() if u.created_at else None}
-                    for u in sorted(exp.usages, key=lambda x: x.created_at or datetime.utcnow())
+                    for u in sorted(exp.usages, key=lambda x: x.created_at or utcnow())
                 ]
             return d
         finally:

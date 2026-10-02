@@ -15,9 +15,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from backend.swarm.tasks import Task, TaskStatus
+from backend.swarm.tasks import Task
 from backend.swarm.roles import (
-    AgentRole, ROLE_PROFILES, profile, roles_for_category, roles_activated_by,
+    AgentRole, profile, roles_for_category, roles_activated_by,
 )
 from backend.swarm.reasoning import (
     CandidateAction, FailureClass, RecoveryHint, classify_failure as _classify_failure_class,
