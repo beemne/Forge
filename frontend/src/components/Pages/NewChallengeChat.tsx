@@ -10,20 +10,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   MessageSquare,
-  Paperclip,
   X,
   ArrowLeft,
   Loader2,
   AlertTriangle,
   Send,
-  Sparkles,
   Bot,
   User,
-  RefreshCw,
-  FileCode,
-  Globe,
-  Terminal,
-  Cpu
+  RefreshCw
 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { Challenge, NavTab } from '../../types';
@@ -47,12 +41,6 @@ interface ChatMessage {
     description?: string;
     files?: { name: string; size: number }[];
   };
-}
-
-interface UploadedFile {
-  name: string;
-  path: string;
-  size: number;
 }
 
 interface NewChallengeChatProps {
@@ -96,257 +84,6 @@ function renderMarkdown(text: string): React.ReactNode {
     ));
   });
 }
-
-const FIELD_CLS =
-  'w-full bg-obsidian-950/90 border border-cyan-500/30 rounded-lg px-3.5 py-2.5 text-xs text-slate-100 ' +
-  'placeholder:text-slate-500 focus:outline-none focus:border-cyber-cyan focus:ring-1 focus:ring-cyber-cyan/40 transition-all font-mono';
-
-// ---------------------------------------------------------------------------
-// Turn 1 Form: Name, Platform, Type (All free-text)
-// ---------------------------------------------------------------------------
-
-const Turn1Form: React.FC<{
-  onSubmit: (name: string, platform: string, type: string) => void;
-  disabled: boolean;
-}> = ({ onSubmit, disabled }) => {
-  const [name, setName] = useState('');
-  const [platform, setPlatform] = useState('');
-  const [type, setType] = useState('');
-
-  const canSubmit = name.trim() && platform.trim() && type.trim() && !disabled;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (canSubmit) {
-      soundEngine.playClick();
-      onSubmit(name.trim(), platform.trim(), type.trim());
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-4 pt-3 border-t border-cyan-500/20 space-y-3 font-mono">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-cyber-cyan uppercase tracking-wider flex items-center space-x-1">
-            <Cpu className="w-3 h-3 text-cyber-cyan" />
-            <span>1. Challenge Name</span>
-            <span className="text-cyber-rose">*</span>
-          </label>
-          <input
-            id="chat-challenge-name"
-            type="text"
-            placeholder="e.g. Impossible Password, Matrix Rev"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={disabled}
-            className={FIELD_CLS}
-            autoFocus
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-cyber-cyan uppercase tracking-wider flex items-center space-x-1">
-            <Globe className="w-3 h-3 text-cyber-cyan" />
-            <span>2. Platform / Event</span>
-            <span className="text-cyber-rose">*</span>
-          </label>
-          <input
-            id="chat-platform-name"
-            type="text"
-            placeholder="e.g. PicoCTF, HackTheBox, DefCon"
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
-            disabled={disabled}
-            className={FIELD_CLS}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-cyber-cyan uppercase tracking-wider flex items-center space-x-1">
-            <Terminal className="w-3 h-3 text-cyber-cyan" />
-            <span>3. Challenge Type</span>
-            <span className="text-cyber-rose">*</span>
-          </label>
-          <input
-            id="chat-challenge-type"
-            type="text"
-            placeholder="e.g. Web, Binary Exploitation, AI Reverse"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            disabled={disabled}
-            className={FIELD_CLS}
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-between items-center pt-1">
-        <span className="text-[10px] text-slate-500">
-          All 3 parameters required for operator telemetry initialization.
-        </span>
-        <button
-          id="chat-turn1-submit"
-          type="submit"
-          disabled={!canSubmit}
-          className={`flex items-center space-x-2 px-5 py-2 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${
-            canSubmit
-              ? 'bg-cyber-cyan text-obsidian-950 hover:bg-cyan-300 shadow-[0_0_15px_rgba(0,240,255,0.4)] hover:scale-[1.02]'
-              : 'bg-obsidian-800 text-slate-600 border border-slate-800 cursor-not-allowed'
-          }`}
-        >
-          <span>Next Turn</span>
-          <Send className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </form>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Turn 2 Form: Goal Description + Optional Target + Optional Files
-// ---------------------------------------------------------------------------
-
-const Turn2Form: React.FC<{
-  onSubmit: (description: string, target: string, files: UploadedFile[]) => void;
-  disabled: boolean;
-}> = ({ onSubmit, disabled }) => {
-  const [description, setDescription] = useState('');
-  const [target, setTarget] = useState('');
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const canSubmit = description.trim() && !disabled && !uploading;
-
-  const handleFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    setUploading(true);
-    try {
-      for (let i = 0; i < fileList.length; i++) {
-        const up = await apiService.uploadArtifact(fileList[i]);
-        setFiles((prev) => [...prev, { name: up.filename, path: up.path, size: up.size }]);
-      }
-      soundEngine.playSuccess();
-    } catch (err) {
-      console.warn('Artifact upload failed:', err);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (canSubmit) {
-      soundEngine.playClick();
-      onSubmit(description.trim(), target.trim(), files);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-4 pt-3 border-t border-cyan-500/20 space-y-3 font-mono">
-      <div className="space-y-1">
-        <label className="text-[10px] font-bold text-cyber-cyan uppercase tracking-wider block">
-          Primary Goal / Description <span className="text-cyber-rose">*</span>
-        </label>
-        <textarea
-          id="chat-description"
-          rows={3}
-          placeholder="Describe what you want the agent to accomplish (e.g., 'Discover SQL injection in login endpoint, dump SQLite credentials and extract the flag')."
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          disabled={disabled}
-          className={`${FIELD_CLS} resize-none`}
-          autoFocus
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
-            Target Address <span className="text-slate-500 font-normal lowercase">(optional URL, IP:Port, nc host port)</span>
-          </label>
-          <input
-            id="chat-target-address"
-            type="text"
-            placeholder="e.g. http://10.10.11.45:8080 or nc chal.ctf.io 9000"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            disabled={disabled}
-            className={FIELD_CLS}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
-            Artifact Attachment <span className="text-slate-500 font-normal lowercase">(optional binary/pcap/src)</span>
-          </label>
-          <button
-            id="chat-upload-btn"
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={disabled || uploading}
-            className="w-full flex items-center justify-center space-x-2 border border-dashed border-cyan-500/40 hover:border-cyber-cyan bg-obsidian-950/60 rounded-lg py-2.5 text-xs text-slate-300 hover:text-cyber-cyan transition-colors"
-          >
-            {uploading ? (
-              <Loader2 className="w-4 h-4 animate-spin text-cyber-cyan" />
-            ) : (
-              <Paperclip className="w-4 h-4 text-cyber-cyan" />
-            )}
-            <span>{uploading ? 'Staging Byte-Safe Upload…' : 'Attach Challenge File'}</span>
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
-          />
-        </div>
-      </div>
-
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-2 pt-1">
-          {files.map((f, i) => (
-            <div
-              key={i}
-              className="flex items-center space-x-2 bg-obsidian-900 border border-cyan-500/30 rounded-md px-2.5 py-1 text-[11px] text-slate-200"
-            >
-              <FileCode className="w-3.5 h-3.5 text-cyber-cyan shrink-0" />
-              <span className="font-semibold">{f.name}</span>
-              <span className="text-slate-500">({(f.size / 1024).toFixed(1)} KB)</span>
-              <button
-                type="button"
-                onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                className="text-slate-500 hover:text-cyber-rose transition-colors ml-1"
-                title="Remove attachment"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex justify-between items-center pt-2">
-        <span className="text-[10px] text-slate-500">
-          Submitting commits challenge creation and launches agent workflow.
-        </span>
-        <button
-          id="chat-turn2-submit"
-          type="submit"
-          disabled={!canSubmit}
-          className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${
-            canSubmit
-              ? 'bg-cyber-emerald text-obsidian-950 hover:bg-emerald-300 shadow-[0_0_18px_rgba(0,255,136,0.4)] hover:scale-[1.02]'
-              : 'bg-obsidian-800 text-slate-600 border border-slate-800 cursor-not-allowed'
-          }`}
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>Launch Challenge Workspace</span>
-        </button>
-      </div>
-    </form>
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Main Component: NewChallengeChat
@@ -429,111 +166,57 @@ export const NewChallengeChat: React.FC<NewChallengeChatProps> = ({
     ]);
   };
 
-  // Turn 1 handler
-  const handleTurn1 = useCallback(
-    async (name: string, platform: string, type: string) => {
-      if (!sessionId) return;
-      addUserMessage(
-        `• **Challenge Name:** ${name}\n• **Platform / Event:** ${platform}\n• **Type:** ${type}`,
-        { name, platform, type }
-      );
-      setLoading(true);
-      setError(null);
-      try {
-        const resp = await apiService.sendChatMessage(sessionId, {
-          challenge_name: name,
-          platform_name: platform,
-          challenge_type: type
-        });
-        setCurrentStep(resp.step);
-        addBotMessage(resp.bot_message, 2);
+  // Pure-chat send (Workstream F): one free-text message per turn. The backend slot-fills
+  // the next missing field and drives the conversation (asks only for what's missing),
+  // creating the challenge once everything is gathered.
+  const [input, setInput] = useState('');
+  const handleSend = useCallback(async () => {
+    const text = input.trim();
+    if (!text || !sessionId || loading || redirecting) return;
+    addUserMessage(text);
+    setInput('');
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await apiService.sendChatMessage(sessionId, { message: text });
+      setCurrentStep(resp.step);
+      const stepState = resp.step === 'committed' ? 'committed' : (resp.step === 2 ? 2 : 1);
+      addBotMessage(resp.bot_message, stepState as 1 | 2 | 'committed');
+
+      if (resp.step === 'committed' && resp.challenge) {
         soundEngine.playSuccess();
-      } catch (e: any) {
-        setError(e?.message || 'Failed to send challenge metadata.');
-      } finally {
-        setLoading(false);
+        setRedirecting(true);
+        const raw = resp.challenge;
+        const formattedChallenge: Challenge = {
+          id: raw.id,
+          name: raw.name,
+          category: raw.category,
+          difficulty: raw.difficulty || 'MEDIUM',
+          target: raw.target_address || (raw.targets && raw.targets[0]?.current_address) || '127.0.0.1',
+          status: raw.status || 'RUNNING',
+          progress: raw.progress || 0,
+          lastActivity: 'Just now',
+          flagStatus: raw.flag_status || 'UNFOUND',
+          flag: raw.flag,
+          description: raw.description || '',
+          workingDirectory: raw.working_directory,
+          platformName: raw.platform_name,
+          createdAt: raw.created_at,
+          created_at: raw.created_at,
+          startedAt: raw.started_at,
+          started_at: raw.started_at,
+          missionPlan: raw.mission_plan,
+          mission_plan: raw.mission_plan
+        };
+        if (onRefreshBackendData) await onRefreshBackendData();
+        setTimeout(() => onOpenWorkspace(formattedChallenge), 800);
       }
-    },
-    [sessionId]
-  );
-
-  // Turn 2 handler
-  const handleTurn2 = useCallback(
-    async (description: string, target: string, files: UploadedFile[]) => {
-      if (!sessionId) return;
-      const fileNames = files.map((f) => f.name).join(', ');
-      const userText = [
-        `• **Goal / Description:** ${description}`,
-        target ? `• **Target Address:** \`${target}\`` : null,
-        files.length > 0 ? `• **Attached Files:** ${fileNames}` : null
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      addUserMessage(userText, {
-        description,
-        target,
-        files: files.map((f) => ({ name: f.name, size: f.size }))
-      });
-
-      setLoading(true);
-      setError(null);
-      try {
-        const resp = await apiService.sendChatMessage(sessionId, {
-          description,
-          target_address: target || undefined,
-          attached_file_paths: files.map((f) => f.path)
-        });
-
-        setCurrentStep(resp.step);
-        addBotMessage(resp.bot_message, 'committed');
-
-        if (resp.step === 'committed' && resp.challenge) {
-          soundEngine.playSuccess();
-          setRedirecting(true);
-
-          // Convert backend response to standard frontend Challenge object
-          const raw = resp.challenge;
-          const formattedChallenge: Challenge = {
-            id: raw.id,
-            name: raw.name,
-            category: raw.category,
-            difficulty: raw.difficulty || 'MEDIUM',
-            target: raw.target_address || (raw.targets && raw.targets[0]?.current_address) || target || '127.0.0.1',
-            status: raw.status || 'RUNNING',
-            progress: raw.progress || 0,
-            lastActivity: 'Just now',
-            flagStatus: raw.flag_status || 'UNFOUND',
-            flag: raw.flag,
-            description: raw.description || description,
-            workingDirectory: raw.working_directory,
-            platformName: raw.platform_name,
-            createdAt: raw.created_at,
-            created_at: raw.created_at,
-            startedAt: raw.started_at,
-            started_at: raw.started_at,
-            missionPlan: raw.mission_plan,
-            mission_plan: raw.mission_plan
-          };
-
-          // Trigger backend data refresh to keep lists in sync
-          if (onRefreshBackendData) {
-            await onRefreshBackendData();
-          }
-
-          // Route directly into the investigation workspace / pipeline view
-          setTimeout(() => {
-            onOpenWorkspace(formattedChallenge);
-          }, 800);
-        }
-      } catch (e: any) {
-        setError(e?.message || 'Failed to complete challenge creation.');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [sessionId, onRefreshBackendData, onOpenWorkspace]
-  );
+    } catch (e: any) {
+      setError(e?.message || 'Failed to send message.');
+    } finally {
+      setLoading(false);
+    }
+  }, [input, sessionId, loading, redirecting, onRefreshBackendData, onOpenWorkspace]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] font-mono text-slate-100 select-text max-w-5xl mx-auto w-full">
@@ -669,16 +352,6 @@ export const NewChallengeChat: React.FC<NewChallengeChatProps> = ({
                   {renderMarkdown(msg.text)}
                 </div>
 
-                {/* Turn 1 Input Form inline on the active prompt */}
-                {isBot && isLastMsg && currentStep === 1 && !loading && (
-                  <Turn1Form onSubmit={handleTurn1} disabled={loading} />
-                )}
-
-                {/* Turn 2 Input Form inline on the active prompt */}
-                {isBot && isLastMsg && currentStep === 2 && !loading && (
-                  <Turn2Form onSubmit={handleTurn2} disabled={loading} />
-                )}
-
                 {/* Redirecting Banner */}
                 {isBot && isLastMsg && (currentStep === 'committed' || redirecting) && (
                   <div className="mt-3 pt-3 border-t border-emerald-500/30 flex items-center space-x-2.5 text-xs text-cyber-emerald bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-500/20">
@@ -712,6 +385,33 @@ export const NewChallengeChat: React.FC<NewChallengeChatProps> = ({
         )}
 
         <div ref={bottomRef} />
+      </div>
+
+      {/* Pure-chat input bar (Workstream F): one free-text reply per turn; the backend
+          asks only for what's still missing and creates the challenge when ready. */}
+      <div className="shrink-0 mt-3 flex items-end gap-2 glass-panel rounded-xl border border-cyan-500/20 p-3 bg-obsidian-950/80">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+          }}
+          rows={1}
+          disabled={loading || redirecting || currentStep === 'committed' || !sessionId}
+          placeholder={
+            currentStep === 'committed'
+              ? 'Challenge created — routing to workspace…'
+              : 'Type your reply… (the challenge name, category, difficulty, or goal)'
+          }
+          className="flex-1 resize-none bg-obsidian-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyber-cyan focus:ring-1 focus:ring-cyber-cyan/40 font-sans max-h-40"
+        />
+        <button
+          onClick={handleSend}
+          disabled={!input.trim() || loading || redirecting || currentStep === 'committed' || !sessionId}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-cyber-cyan/15 border border-cyber-cyan/50 text-cyber-cyan text-xs font-bold uppercase tracking-wider hover:bg-cyber-cyan/25 transition-colors disabled:opacity-40 shrink-0"
+        >
+          <Send className="w-3.5 h-3.5" /> Send
+        </button>
       </div>
     </div>
   );

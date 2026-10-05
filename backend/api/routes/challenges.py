@@ -174,6 +174,9 @@ class ChatSessionStartRequest(BaseModel):
 
 class ChatSessionMessageRequest(BaseModel):
     """Body for POST /challenges/chat-session/{session_id}/message."""
+    # Free-text operator turn (pure-chat mode, Workstream F): when set, the backend
+    # slot-fills the next missing field from it. Structured fields below still work.
+    message: Optional[str] = None
     # Turn-1 fields (required on step == 1)
     challenge_name: Optional[str] = None
     platform_name: Optional[str] = None
@@ -263,6 +266,23 @@ async def send_chat_message(
         if req.difficulty and req.difficulty.strip():
             session["difficulty"] = normalize_difficulty(req.difficulty)
 
+        # Pure-chat slot filling: with no structured turn-1 field, interpret the free-text
+        # message as the answer to the FIRST still-missing slot (name → category →
+        # difficulty). Unrecognized category/difficulty leaves the slot empty so the bot
+        # re-asks that one field only — never fails, never shows a form (F3).
+        msg = (req.message or "").strip()
+        if msg and not (req.challenge_name or req.challenge_type or req.difficulty):
+            if not session.get("name"):
+                session["name"] = msg
+            elif not session.get("type"):
+                canon = normalize_category(msg)
+                if canon:
+                    session["type"] = canon
+            elif not session.get("difficulty"):
+                diff = normalize_difficulty(msg, default=None)
+                if diff:
+                    session["difficulty"] = diff
+
         missing = []
         if not session.get("name"):
             missing.append(("name", "the **challenge name**"))
@@ -304,12 +324,16 @@ async def send_chat_message(
     # TURN 2: collect optional target / files / goal, then create
     # ------------------------------------------------------------------
     if step == 2:
-        description = (req.description or "").strip()
+        # Pure-chat: the free-text message is the goal/description when no structured
+        # description field is sent. Still conversational — re-ask rather than 422.
+        description = (req.description or req.message or "").strip()
         if not description:
-            raise HTTPException(
-                status_code=422,
-                detail="Please include a description / goal for the challenge.",
-            )
+            return {
+                "session_id": session_id,
+                "step": 2,
+                "awaiting": ["description"],
+                "bot_message": "Almost there — in a sentence or two, what's the goal for this challenge?",
+            }
 
         # Merge any file paths uploaded before this turn (via /challenges/upload)
         extra_paths = [p for p in (req.attached_file_paths or []) if p and os.path.isfile(p)]

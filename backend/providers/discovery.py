@@ -86,6 +86,7 @@ class DiscoveryService:
                                             detail=f"probe error: {e}", probed_at=time.time())
                 self._health[name] = health
                 self._persist(health)
+                self._persist_models(name, provider, health)
                 self._apply_to_breaker(name, provider, health)
             self._last_run_ts = time.time()
             healthy = sum(1 for h in self._health.values() if h.health_status == "healthy")
@@ -213,6 +214,56 @@ class DiscoveryService:
         elif health.default_model_present is False:
             default_model = getattr(provider, "default_model", "") or name
             quota_manager.trip_breaker(name, default_model, reason=f"404 default model '{default_model}' not in live catalog")
+
+    def _persist_models(self, provider_name: str, provider, health: ProviderHealth) -> None:
+        """Persist per-model discovery state to the models table (B2): present_in_catalog,
+        callable, context_length, last_probe_ts for every model mapped to this provider.
+        Best-effort; never raises."""
+        try:
+            import time as _t
+            from backend.database.session import SessionLocal
+            from backend.database.models import ModelConfigModel
+            from backend.providers.router import model_router
+            from backend.agent_runtime.context_budget import static_model_window
+
+            mapped = [(alias, wire) for alias, (pn, wire) in model_router.MODEL_PROVIDER_MAP.items()
+                      if pn == provider_name]
+            if not mapped:
+                return
+            catalog = list(health.catalog_models or [])
+            default_model = getattr(provider, "default_model", "") or ""
+            now = _t.time()
+            db = SessionLocal()
+            try:
+                seen = set()
+                for _alias, wire in mapped:
+                    if wire in seen:
+                        continue
+                    seen.add(wire)
+                    # present_in_catalog: if we have a catalog, require a match; if the probe
+                    # returned no catalog at all, don't claim the model is gone (leave True).
+                    present = True if not catalog else any(wire in c or c in wire for c in catalog)
+                    row = (db.query(ModelConfigModel)
+                           .filter(ModelConfigModel.provider_name == provider_name,
+                                   ModelConfigModel.model_name == wire).first())
+                    if row is None:
+                        row = ModelConfigModel(provider_name=provider_name, model_name=wire,
+                                               capability="general_reasoning")
+                        db.add(row)
+                    row.present_in_catalog = present
+                    # callable is only *proven* for the default model (the one verify() called)
+                    # when the provider is healthy; otherwise fall back to catalog presence.
+                    if wire == default_model:
+                        row.callable = bool(present and health.health_status == "healthy")
+                    else:
+                        row.callable = present
+                    row.context_length = static_model_window(wire)
+                    row.last_probe_ts = now
+                db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"[Discovery] per-model persist skip for {provider_name}: {e}")
 
     def _persist(self, health: ProviderHealth) -> None:
         """Persist provider health to the providers table (best-effort, never raises)."""

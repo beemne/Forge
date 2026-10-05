@@ -185,14 +185,16 @@ export class ApiService {
   public async sendChatMessage(
     sessionId: string,
     payload: {
+      message?: string;
       challenge_name?: string;
       platform_name?: string;
       challenge_type?: string;
+      difficulty?: string;
       target_address?: string;
       description?: string;
       attached_file_paths?: string[];
     }
-  ): Promise<{ session_id: string; step: number | string; bot_message: string; challenge?: any }> {
+  ): Promise<{ session_id: string; step: number | string; bot_message: string; awaiting?: string[]; challenge?: any }> {
     const res = await apiFetch(`${API_BASE_URL}/challenges/chat-session/${sessionId}/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

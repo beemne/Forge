@@ -33,6 +33,10 @@ class ModelConfigModel(Base):
     cost_per_1k_input = Column(Float, default=0.0)
     cost_per_1k_output = Column(Float, default=0.0)
     enabled = Column(Boolean, default=True)
+    # Workstream B2: per-model discovery state from the live catalog probe.
+    present_in_catalog = Column(Boolean, default=True)   # listed in the provider's live catalog
+    callable = Column(Boolean, default=True)             # proven callable by a minimal completion
+    last_probe_ts = Column(Float, default=0.0)           # POSIX time of the last probe
 
 class ChallengeModel(Base):
     __tablename__ = "challenges"

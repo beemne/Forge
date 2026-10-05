@@ -482,20 +482,30 @@ class SwarmOrchestrator:
                 size = 3
         return max(1, min(size, 6))
 
-    def _build_agent_context(self, board: "SwarmBlackboard", workdir: str, agent_id: str) -> AgentContext:
+    def _build_agent_context(self, board: "SwarmBlackboard", workdir: str, agent_id: str,
+                             *, memory_override: Optional[str] = None,
+                             history_override: Optional[str] = None) -> AgentContext:
         """Full challenge context for one agent this turn (identical template for all;
-        only history_context + injected_directive differ per agent)."""
+        only history_context + injected_directive differ per agent).
+
+        memory_override / history_override let the caller substitute compacted versions
+        when the assembled prompt would exceed the model's context window (Workstream D).
+        """
         pivot = board.pivot_directive if board.pivot_directive != "__pending__" else ""
-        # Fold the shared cross-mission dead-end recall into memory_context (A4) so the
-        # default engine avoids rediscovering approaches that failed in prior missions.
-        memory_context = board.memory_context or ""
-        try:
-            from backend.knowledge.failed_approaches import recall_block
-            xmission = recall_block(board.category)
-            if xmission:
-                memory_context = (memory_context + "\n\n" + xmission).strip() if memory_context else xmission
-        except Exception:
-            pass
+        if memory_override is not None:
+            memory_context = memory_override
+        else:
+            # Fold the shared cross-mission dead-end recall into memory_context (A4) so the
+            # default engine avoids rediscovering approaches that failed in prior missions.
+            memory_context = board.memory_context or ""
+            try:
+                from backend.knowledge.failed_approaches import recall_block
+                xmission = recall_block(board.category)
+                if xmission:
+                    memory_context = (memory_context + "\n\n" + xmission).strip() if memory_context else xmission
+            except Exception:
+                pass
+        history_context = history_override if history_override is not None else board.build_history_context(agent_id)
         return make_context_from_env(
             env_info=board.env_info or {},
             challenge_name=board.challenge_name,
@@ -510,12 +520,76 @@ class SwarmOrchestrator:
             flag_pattern=board.flag_pattern,
             attached_file_paths=list(board.attached_file_paths),
             artifact_classification=board.artifact_classification,
-            history_context=board.build_history_context(agent_id),
+            history_context=history_context,
             injected_directive=board.agent_directives.get(agent_id, ""),
             memory_context=memory_context,
             exhausted_strategies=list(board.exhausted_strategies),
             pivot_directive=pivot,
         )
+
+    def _build_budgeted_prompt(self, board: "SwarmBlackboard", workdir: str, agent_id: str,
+                               model_name: str):
+        """Assemble (system_instruction, user_prompt) and, when *model_name* is known and
+        the prompt would exceed ~80% of that model's context window, compact EXTRACTIVELY
+        (Workstream D): first drop supplementary memory recall, then trim the OLDEST tail
+        of history (recent step transcripts) while keeping the protected head — discovered
+        state, decoded secrets, flag candidates, exhausted strategies, pivot directive,
+        and pending derived-artifact analysis all sit at the top of build_history_context.
+        Returns (system_instruction, user_prompt, compacted: bool).
+        """
+        from backend.agent_runtime.context_budget import estimate_tokens, budget_tokens, model_window
+
+        ctx = self._build_agent_context(board, workdir, agent_id)
+        system_instruction, user_prompt = build_agent_prompt(ctx)
+        if not model_name:
+            return system_instruction, user_prompt, False
+
+        budget = budget_tokens(model_name)
+        if estimate_tokens(system_instruction) + estimate_tokens(user_prompt) <= budget:
+            return system_instruction, user_prompt, False
+
+        # 1) Drop supplementary recall (least valuable).
+        ctx = self._build_agent_context(board, workdir, agent_id, memory_override="")
+        system_instruction, user_prompt = build_agent_prompt(ctx)
+        if estimate_tokens(system_instruction) + estimate_tokens(user_prompt) <= budget:
+            self._note_compaction(board, agent_id, model_name, dropped_memory=True, trimmed_history=False)
+            return system_instruction, user_prompt, True
+
+        # 2) Trim the history tail (oldest step transcripts) to fit, keeping the protected head.
+        full_history = board.build_history_context(agent_id)
+        overhead = (estimate_tokens(system_instruction) + estimate_tokens(user_prompt)
+                    - estimate_tokens(full_history))
+        hist_token_budget = max(500, budget - overhead)
+        trimmed = full_history[: hist_token_budget * 4]
+        if len(trimmed) < len(full_history):
+            trimmed += "\n…[older step history trimmed to fit the model context window]"
+        ctx = self._build_agent_context(board, workdir, agent_id,
+                                        memory_override="", history_override=trimmed)
+        system_instruction, user_prompt = build_agent_prompt(ctx)
+        self._note_compaction(board, agent_id, model_name, dropped_memory=True, trimmed_history=True)
+        return system_instruction, user_prompt, True
+
+    def _note_compaction(self, board, agent_id, model_name, *, dropped_memory, trimmed_history):
+        """Observability for a default-engine compaction (D4): agent step + WS event."""
+        from backend.agent_runtime.context_budget import model_window
+        note = (f"[CONTEXT COMPACTED] model={model_name} window={model_window(model_name)} "
+                f"dropped_memory={dropped_memory} trimmed_history={trimmed_history} "
+                f"(protected state/flags/evidence preserved)")
+        try:
+            board.record_agent_step(agent_id, note=note)
+        except Exception:
+            pass
+        try:
+            import asyncio
+            from backend.websocket.manager import ws_manager
+            asyncio.get_running_loop().create_task(ws_manager.broadcast({
+                "type": "CONTEXT_COMPACTED",
+                "data": {"challenge_id": board.challenge_id, "agent_id": agent_id,
+                         "model": model_name, "dropped_memory": dropped_memory,
+                         "trimmed_history": trimmed_history},
+            }))
+        except Exception:
+            pass
 
     async def _agent_worker(self, agent_id: str, board: "SwarmBlackboard", workdir: str, capability: str):
         """One general-purpose, full-context agent running a budget-bounded ReAct
@@ -570,8 +644,12 @@ class SwarmOrchestrator:
             iters = board.agent_iterations.get(agent_id, 0)
 
             try:
-                ctx = self._build_agent_context(board, workdir, agent_id)
-                system_instruction, user_prompt = build_agent_prompt(ctx)
+                # Budget/compact against the model the agent last used (Workstream D):
+                # empty on the first turn (no compaction), then tracks the model actually
+                # in use so a long run never overflows that model's context window.
+                last_model = board.agent_last_model.get(agent_id, "")
+                system_instruction, user_prompt, _compacted = self._build_budgeted_prompt(
+                    board, workdir, agent_id, last_model)
                 await board.update_worker_state(agent_id, status="ANALYZING",
                                                 current_task=f"Deciding next action (iter {iters + 1})")
 
@@ -595,6 +673,9 @@ class SwarmOrchestrator:
 
                 content = resp.content or ""
                 model_name = getattr(resp, "model_name", capability)
+                # Remember the model this agent is actually using so next turn's prompt is
+                # budgeted/compacted against the right context window (Workstream D).
+                board.agent_last_model[agent_id] = model_name or ""
 
                 # Per-run token budget (A5): accumulate REAL usage from the response and wind
                 # the run down cleanly when the budget is exhausted — rather than looping until

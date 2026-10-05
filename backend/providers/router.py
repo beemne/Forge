@@ -416,6 +416,21 @@ class ModelRouter:
         # (no probe calls). Stable sort preserves the curated order among un-throttled peers.
         candidates.sort(key=lambda p_name: 1 if quota_manager.is_near_ceiling(p_name) else 0)
 
+        # Dynamic ordering from discovery (B3): prefer providers the last catalog probe
+        # found healthy; push degraded/unavailable to the back. The breaker already HARD
+        # drops dead providers/models — this only re-orders the survivors, so an unprobed
+        # provider is treated as neutral and never penalized. Stable sort preserves order.
+        try:
+            from backend.providers.discovery import discovery_service
+            _rank = {"healthy": 0, "unknown": 1, "degraded": 2, "unavailable": 3}
+
+            def _health_rank(p_name: str) -> int:
+                h = discovery_service.health_for(p_name)
+                return 1 if h is None else _rank.get(h.health_status, 1)
+            candidates.sort(key=_health_rank)
+        except Exception:
+            pass
+
         paid_rejected = False
         budget_rejected = False
 

@@ -43,7 +43,7 @@ from backend.database.session import (
 # backend/database/session.py's MIGRATIONS list without updating this file. Deriving it
 # from len(MIGRATIONS) would make the test agree with whatever it found, which is the
 # opposite of what it is for.
-MIGRATION_COUNT = 21
+MIGRATION_COUNT = 24
 LOGGER_NAME = "forge.database.session"
 
 

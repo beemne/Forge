@@ -72,6 +72,32 @@ class TestConversationalCreationFlow(unittest.TestCase):
         self.assertIn("pwn", body2["bot_message"])         # category normalized
         self.assertIn("INSANE", body2["bot_message"])      # difficulty normalized
 
+    def test_pure_chat_free_text_slot_filling(self):
+        """Operator answers each prompt with a plain free-text message (no form fields)."""
+        sid = self.client.post("/api/challenges/chat-session").json()["session_id"]
+
+        r_name = self.client.post(f"/api/challenges/chat-session/{sid}/message",
+                                  json={"message": "Matrix Breakout"})
+        self.assertEqual(r_name.json()["step"], 1)
+        self.assertIn("category", r_name.json().get("awaiting", []))
+
+        # Unrecognized category -> re-ask category only, never fail.
+        r_bad = self.client.post(f"/api/challenges/chat-session/{sid}/message",
+                                 json={"message": "something vague"})
+        self.assertEqual(r_bad.status_code, 200)
+        self.assertIn("category", r_bad.json().get("awaiting", []))
+
+        r_cat = self.client.post(f"/api/challenges/chat-session/{sid}/message",
+                                 json={"message": "reverse engineering"})
+        self.assertIn("difficulty", r_cat.json().get("awaiting", []))
+
+        r_diff = self.client.post(f"/api/challenges/chat-session/{sid}/message",
+                                  json={"message": "hard"})
+        body = r_diff.json()
+        self.assertEqual(body["step"], 2)
+        self.assertIn("rev", body["bot_message"])          # category normalized from free text
+        self.assertIn("HARD", body["bot_message"])         # difficulty normalized from free text
+
 
 if __name__ == "__main__":
     unittest.main()

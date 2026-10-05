@@ -64,6 +64,21 @@ def estimate_tokens(text: str) -> int:
     return max(0, len(text) // 4)
 
 
+def static_model_window(model_name: str) -> int:
+    """Window from the built-in known/family maps only (no DB). This is the value
+    discovery persists into ModelConfigModel.context_length, so model_window() reads
+    back a consistent number rather than pinning everything to the column default."""
+    if not model_name:
+        return FALLBACK_WINDOW
+    if model_name in KNOWN_WINDOWS:
+        return KNOWN_WINDOWS[model_name]
+    low = model_name.lower()
+    for frag, win in FAMILY_WINDOWS:
+        if frag in low:
+            return win
+    return FALLBACK_WINDOW
+
+
 def model_window(model_name: str) -> int:
     """Return the context window (in tokens) for *model_name*.
 
@@ -86,15 +101,8 @@ def model_window(model_name: str) -> int:
             db.close()
     except Exception:
         pass
-    # 2. Exact known window.
-    if model_name in KNOWN_WINDOWS:
-        return KNOWN_WINDOWS[model_name]
-    # 3. Family fallback.
-    low = model_name.lower()
-    for frag, win in FAMILY_WINDOWS:
-        if frag in low:
-            return win
-    return FALLBACK_WINDOW
+    # 2/3. Built-in known / family fallback.
+    return static_model_window(model_name)
 
 
 def budget_tokens(model_name: str, threshold: float = COMPACT_THRESHOLD) -> int:

@@ -96,6 +96,10 @@ MIGRATIONS = [
     (19, "ALTER TABLE targets ADD COLUMN address_history JSON"),
     (20, "ALTER TABLE targets ADD COLUMN discovery_method VARCHAR DEFAULT 'FORGE Auto Ingest'"),
     (21, "ALTER TABLE challenges ADD COLUMN approval_mode VARCHAR DEFAULT NULL"),
+    # Workstream B2: per-model discovery state (present/callable/last-probe).
+    (22, "ALTER TABLE models ADD COLUMN present_in_catalog BOOLEAN DEFAULT 1"),
+    (23, "ALTER TABLE models ADD COLUMN callable BOOLEAN DEFAULT 1"),
+    (24, "ALTER TABLE models ADD COLUMN last_probe_ts FLOAT DEFAULT 0"),
 ]
 
 # SQLite's exact wording for ADD COLUMN on a column that already exists

@@ -172,6 +172,7 @@ class SwarmBlackboard:
         self.agent_transcripts: Dict[str, List[str]] = {}   # agent_id -> transcript lines
         self.agent_directives: Dict[str, str] = {}          # agent_id -> injected directive
         self.agent_iterations: Dict[str, int] = {}          # agent_id -> tool-call count
+        self.agent_last_model: Dict[str, str] = {}          # agent_id -> last model used (context budgeting)
         self.agent_started_ts: Dict[str, float] = {}        # agent_id -> wall-clock start
         # Wall-clock seconds each agent spent idle at a checkpoint pause. Subtracted from
         # elapsed so a 3.5-min operator pause never counts against a 5-min work budget.
